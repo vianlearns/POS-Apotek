@@ -45,6 +45,11 @@ Hanum Farma adalah aplikasi desktop untuk manajemen apotek yang dibangun menggun
 
 ## Cara Menjalankan Aplikasi
 
+## Download Aplikasi
+
+Anda dapat mengunduh versi terbaru aplikasi Hanum Farma dari:
+[https://github.com/vianlearns/POS-Apotek/releases](https://github.com/vianlearns/POS-Apotek/releases)
+
 ### Mode Pengembangan
 
 ```sh
@@ -61,6 +66,7 @@ npm run electron:dev
 # Build aplikasi untuk platform saat ini
 npm run electron:build
 ```
+
 or
 
 ```sh
