@@ -130,6 +130,8 @@ function ensureDb() {
         date TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now')),
         cashier_id TEXT NOT NULL,
         subtotal REAL NOT NULL,
+        discount REAL DEFAULT 0,
+        discount_type TEXT DEFAULT 'percentage',
         total REAL NOT NULL,
         payment_method TEXT NOT NULL DEFAULT 'cash',
         prescription_id TEXT,
@@ -152,6 +154,50 @@ function ensureDb() {
         created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now')),
         FOREIGN KEY (product_id) REFERENCES products(id),
         FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE
+      );
+    `);
+
+    // --- Employees ---
+    db.run(`
+      CREATE TABLE IF NOT EXISTS employees (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        position TEXT NOT NULL,
+        base_salary REAL NOT NULL,
+        bonus REAL DEFAULT 0,
+        start_date TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+        created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now')),
+        updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now'))
+      );
+    `);
+
+    // --- Payrolls ---
+    db.run(`
+      CREATE TABLE IF NOT EXISTS payrolls (
+        id TEXT PRIMARY KEY,
+        employee_id TEXT NOT NULL,
+        period_month TEXT NOT NULL,
+        total_salary REAL NOT NULL,
+        payment_date TEXT NOT NULL,
+        notes TEXT,
+        created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now')),
+        updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now')),
+        FOREIGN KEY (employee_id) REFERENCES employees(id)
+      );
+    `);
+
+    // --- Expenses ---
+    db.run(`
+      CREATE TABLE IF NOT EXISTS expenses (
+        id TEXT PRIMARY KEY,
+        category TEXT NOT NULL,
+        description TEXT NOT NULL,
+        amount REAL NOT NULL,
+        date TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now')),
+        updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now'))
       );
     `);
     

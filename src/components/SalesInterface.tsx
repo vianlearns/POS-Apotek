@@ -59,6 +59,8 @@ interface Transaction {
   cashier_id: string;
   items: CartItem[];
   subtotal: number;
+  discount?: number;
+  discountType?: 'percentage' | 'fixed';
   total: number;
   payment_method: string;
   status: string;
@@ -89,6 +91,9 @@ const SalesInterface = () => {
   const [loading, setLoading] = useState(true);
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
   const [selectedPrescription, setSelectedPrescription] = useState<string>('none');
+  // Discount state
+  const [discount, setDiscount] = useState<number>(0);
+  const [discountType, setDiscountType] = useState<'percentage' | 'fixed'>('percentage');
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -254,6 +259,21 @@ const SalesInterface = () => {
     return cart.reduce((sum, item) => sum + item.total, 0);
   };
 
+  const calculateDiscountAmount = () => {
+    const subtotal = calculateSubtotal();
+    if (discountType === 'percentage') {
+      return (subtotal * discount) / 100;
+    } else {
+      return Math.min(discount, subtotal); // Fixed discount can't exceed subtotal
+    }
+  };
+
+  const calculateTotal = () => {
+    const subtotal = calculateSubtotal();
+    const discountAmount = calculateDiscountAmount();
+    return Math.max(0, subtotal - discountAmount);
+  };
+
   const processTransaction = async () => {
     if (cart.length === 0) {
       toast({
@@ -275,6 +295,7 @@ const SalesInterface = () => {
 
     try {
       const subtotal = calculateSubtotal();
+      const total = calculateTotal();
       
       // Create transaction via Express API
       const transactionData = await fetchJSON(`${API_BASE}/transactions`, {
@@ -283,7 +304,9 @@ const SalesInterface = () => {
         body: JSON.stringify({
           cashier_id: user.id,
           subtotal,
-          total: subtotal,
+          discount: discount || 0,
+          discount_type: discountType,
+          total,
           payment_method: 'cash',
           status: 'completed',
           prescription_id: (selectedPrescription && selectedPrescription !== 'none') ? selectedPrescription : null
@@ -332,6 +355,8 @@ const SalesInterface = () => {
         cashier_id: transactionData.cashier_id,
         items: cart,
         subtotal: transactionData.subtotal,
+        discount: discount > 0 ? discount : undefined,
+        discountType: discount > 0 ? discountType : undefined,
         total: transactionData.total,
         payment_method: transactionData.payment_method,
         status: transactionData.status
@@ -340,6 +365,8 @@ const SalesInterface = () => {
       setLastTransaction(transaction);
       setCart([]);
       setSelectedPrescription('none');
+      setDiscount(0);
+      setDiscountType('percentage');
       setIsReceiptDialogOpen(true);
       fetchProducts(); // Refresh products to update stock
       fetchPrescriptions(); // Refresh prescriptions to update status
@@ -557,6 +584,66 @@ const SalesInterface = () => {
           )}
         </div>
 
+        {/* Discount Section */}
+        {cart.length > 0 && (
+          <div className="medical-card p-6 slide-up" style={{animationDelay: '0.45s'}}>
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="p-2 rounded-lg bg-secondary/10">
+                <Receipt className="h-5 w-5 text-secondary" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-lg text-foreground">Diskon Global</h3>
+                <p className="text-sm text-muted-foreground">Opsional - Berikan diskon untuk transaksi ini</p>
+              </div>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="flex space-x-3">
+                <div className="flex-1">
+                  <Label htmlFor="discount-amount" className="text-sm font-medium">
+                    Nilai Diskon
+                  </Label>
+                  <Input
+                    id="discount-amount"
+                    type="number"
+                    min="0"
+                    max={discountType === 'percentage' ? 100 : calculateSubtotal()}
+                    value={discount}
+                    onChange={(e) => setDiscount(Number(e.target.value))}
+                    placeholder="0"
+                    className="mt-1"
+                  />
+                </div>
+                <div className="w-32">
+                  <Label htmlFor="discount-type" className="text-sm font-medium">
+                    Tipe
+                  </Label>
+                  <Select value={discountType} onValueChange={(value: 'percentage' | 'fixed') => setDiscountType(value)}>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="percentage">%</SelectItem>
+                      <SelectItem value="fixed">Rp</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              
+              {discount > 0 && (
+                <div className="p-3 bg-secondary/5 border border-secondary/20 rounded-lg">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Potongan:</span>
+                    <span className="font-medium text-secondary">
+                      - Rp {calculateDiscountAmount().toLocaleString('id-ID')}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Transaction Summary */}
         {cart.length > 0 && (
           <div className="medical-card p-6 slide-up" style={{animationDelay: '0.5s'}}>
@@ -566,9 +653,15 @@ const SalesInterface = () => {
                 <span className="text-muted-foreground">Subtotal:</span>
                 <span className="font-medium">Rp {calculateSubtotal().toLocaleString('id-ID')}</span>
               </div>
+              {discount > 0 && (
+                <div className="flex justify-between items-center py-2 border-b border-border/50">
+                  <span className="text-muted-foreground">Diskon ({discountType === 'percentage' ? `${discount}%` : 'Fixed'}):</span>
+                  <span className="font-medium text-secondary">- Rp {calculateDiscountAmount().toLocaleString('id-ID')}</span>
+                </div>
+              )}
               <div className="flex justify-between items-center text-xl font-bold text-primary">
                 <span>Total:</span>
-                <span>Rp {calculateSubtotal().toLocaleString('id-ID')}</span>
+                <span>Rp {calculateTotal().toLocaleString('id-ID')}</span>
               </div>
               <Button 
                 className="w-full h-12 bg-primary hover:bg-primary-hover shadow-md hover:shadow-lg transition-all duration-200 font-medium" 
@@ -638,7 +731,26 @@ const SalesInterface = () => {
               </div>
               
               <div className="space-y-2">
-                <div className="flex justify-between text-lg font-bold">
+                {lastTransaction.discount > 0 && (
+                  <>
+                    <div className="flex justify-between text-sm">
+                      <span>Subtotal</span>
+                      <span>Rp {lastTransaction.subtotal.toLocaleString('id-ID')}</span>
+                    </div>
+                    <div className="flex justify-between text-sm text-secondary">
+                      <span>
+                        Diskon ({lastTransaction.discountType === 'percentage' ? `${lastTransaction.discount}%` : `Rp ${lastTransaction.discount.toLocaleString('id-ID')}`})
+                      </span>
+                      <span>
+                        - Rp {(lastTransaction.discountType === 'percentage' 
+                          ? (lastTransaction.subtotal * lastTransaction.discount) / 100
+                          : lastTransaction.discount
+                        ).toLocaleString('id-ID')}
+                      </span>
+                    </div>
+                  </>
+                )}
+                <div className="flex justify-between text-lg font-bold border-t border-border/50 pt-2">
                   <span>TOTAL</span>
                   <span className="text-primary">Rp {lastTransaction.total.toLocaleString('id-ID')}</span>
                 </div>

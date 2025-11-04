@@ -10,6 +10,7 @@ Hanum Farma adalah aplikasi desktop untuk manajemen apotek yang dibangun menggun
 - **Manajemen Produk**: Pencatatan dan pengelolaan stok obat dan produk kesehatan
 - **Manajemen Supplier**: Pengelolaan data supplier dan pemesanan produk
 - **Penjualan**: Antarmuka kasir untuk transaksi penjualan dengan dan tanpa resep
+- **Transaksi**: Pencatatan dan pengelolaan transaksi penjualan
 - **Manajemen Resep**: Pencatatan dan pengelolaan resep dokter
 - **Laporan**: Pembuatan laporan penjualan dan keuangan
 

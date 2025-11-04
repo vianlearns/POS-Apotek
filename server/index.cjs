@@ -362,6 +362,102 @@ app.put('/api/prescriptions/:id/status', (req, res) => {
   );
 });
 
+// Edit prescription
+app.put('/api/prescriptions/:id', (req, res) => {
+  const id = req.params.id;
+  const p = req.body || {};
+  
+  if (!p.doctor_name || !p.patient_name) {
+    return res.status(400).json({ ok: false, error: 'doctor_name dan patient_name wajib diisi' });
+  }
+  
+  const db = getDb();
+  
+  db.serialize(() => {
+    // Update prescription basic info
+    db.run(
+      `UPDATE prescriptions SET doctor_name = ?, patient_name = ?, updated_at = datetime('now') WHERE id = ?`,
+      [p.doctor_name, p.patient_name, id],
+      function(err) {
+        if (err) return res.status(500).json({ ok: false, error: err.message });
+        
+        if (this.changes === 0) {
+          return res.status(404).json({ ok: false, error: 'Resep tidak ditemukan' });
+        }
+        
+        // If medications are provided, update them
+        if (p.medications && Array.isArray(p.medications)) {
+          // Delete existing medications
+          db.run('DELETE FROM prescription_medications WHERE prescription_id = ?', [id], function(err) {
+            if (err) return res.status(500).json({ ok: false, error: err.message });
+            
+            // Insert new medications
+            if (p.medications.length > 0) {
+              const stmt = db.prepare(
+                `INSERT INTO prescription_medications (id, prescription_id, product_id, quantity, dosage, instructions, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
+              );
+              
+              p.medications.forEach(m => {
+                if (m.product_id && m.quantity > 0) {
+                  stmt.run([
+                    genId(), id, m.product_id, Number(m.quantity), m.dosage || '', m.instructions || ''
+                  ]);
+                }
+              });
+              
+              stmt.finalize(err => {
+                if (err) return res.status(500).json({ ok: false, error: err.message });
+                res.json({ ok: true, message: 'Resep berhasil diperbarui' });
+              });
+            } else {
+              res.json({ ok: true, message: 'Resep berhasil diperbarui' });
+            }
+          });
+        } else {
+          res.json({ ok: true, message: 'Resep berhasil diperbarui' });
+        }
+      }
+    );
+  });
+});
+
+// Delete prescription
+app.delete('/api/prescriptions/:id', (req, res) => {
+  const id = req.params.id;
+  const db = getDb();
+  
+  db.serialize(() => {
+    // Check if prescription exists and is not used in any transaction
+    db.get('SELECT COUNT(*) as count FROM transactions WHERE prescription_id = ?', [id], (err, result) => {
+      if (err) return res.status(500).json({ ok: false, error: err.message });
+      
+      if (result.count > 0) {
+        return res.status(400).json({ 
+          ok: false, 
+          error: 'Resep tidak dapat dihapus karena sudah digunakan dalam transaksi' 
+        });
+      }
+      
+      // Delete prescription medications first (due to foreign key)
+      db.run('DELETE FROM prescription_medications WHERE prescription_id = ?', [id], function(err) {
+        if (err) return res.status(500).json({ ok: false, error: err.message });
+        
+        // Delete the prescription
+        db.run('DELETE FROM prescriptions WHERE id = ?', [id], function(err) {
+          if (err) return res.status(500).json({ ok: false, error: err.message });
+          
+          if (this.changes === 0) {
+            return res.status(404).json({ ok: false, error: 'Resep tidak ditemukan' });
+          }
+          
+          res.json({ ok: true, message: 'Resep berhasil dihapus' });
+        });
+      });
+    });
+  });
+});
+
 // --- Transactions ---
 app.get('/api/transactions', (req, res) => {
   const { from, to, status } = req.query;
@@ -403,14 +499,14 @@ app.post('/api/transactions', (req, res) => {
   const id = genId();
   const db = getDb();
   db.run(
-    `INSERT INTO transactions (id, date, cashier_id, subtotal, total, payment_method, prescription_id, status, created_at)
-     VALUES (?, strftime('%Y-%m-%dT%H:%M:%S','now'), ?, ?, ?, ?, ?, ?, datetime('now'))`,
-    [id, t.cashier_id, Number(t.subtotal), Number(t.total), t.payment_method || 'cash', t.prescription_id || null, t.status || 'completed'],
+    `INSERT INTO transactions (id, date, cashier_id, subtotal, discount, discount_type, total, payment_method, prescription_id, status, created_at)
+     VALUES (?, strftime('%Y-%m-%dT%H:%M:%S','now'), ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+    [id, t.cashier_id, Number(t.subtotal), Number(t.discount || 0), t.discount_type || 'percentage', Number(t.total), t.payment_method || 'cash', t.prescription_id || null, t.status || 'completed'],
     function(err) {
       if (err) return res.status(500).json({ ok: false, error: err.message });
       // Kembalikan data transaksi lengkap untuk dipakai UI (struk, dsb.)
       db.get(
-        `SELECT id, date, cashier_id, subtotal, total, payment_method, prescription_id, status FROM transactions WHERE id = ?`,
+        `SELECT id, date, cashier_id, subtotal, discount, discount_type, total, payment_method, prescription_id, status FROM transactions WHERE id = ?`,
         [id],
         (err2, row) => {
           if (err2) return res.status(500).json({ ok: false, error: err2.message });
@@ -441,6 +537,394 @@ app.post('/api/transactions/:id/items', (req, res) => {
   stmt.finalize(err => {
     if (err) return res.status(500).json({ ok: false, error: err.message });
     res.status(201).json({ ok: true });
+  });
+});
+
+app.put('/api/transactions/:id', (req, res) => {
+  const id = req.params.id;
+  const { payment_method, discount, discount_type, items, subtotal, total } = req.body;
+  const db = getDb();
+  
+  // First, check if transaction exists and validate edit permissions
+  db.get('SELECT * FROM transactions WHERE id = ?', [id], (err, transaction) => {
+    if (err) return res.status(500).json({ ok: false, error: err.message });
+    if (!transaction) return res.status(404).json({ ok: false, error: 'Transaksi tidak ditemukan' });
+    
+    // Update transaction
+    const updateFields = [];
+    const updateParams = [];
+    
+    if (payment_method !== undefined) {
+      updateFields.push('payment_method = ?');
+      updateParams.push(payment_method);
+    }
+    if (discount !== undefined) {
+      updateFields.push('discount = ?');
+      updateParams.push(Number(discount));
+    }
+    if (discount_type !== undefined) {
+      updateFields.push('discount_type = ?');
+      updateParams.push(discount_type);
+    }
+    if (subtotal !== undefined) {
+      updateFields.push('subtotal = ?');
+      updateParams.push(Number(subtotal));
+    }
+    if (total !== undefined) {
+      updateFields.push('total = ?');
+      updateParams.push(Number(total));
+    }
+    
+    if (updateFields.length === 0) {
+      return res.status(400).json({ ok: false, error: 'Tidak ada data untuk diperbarui' });
+    }
+    
+    updateParams.push(id);
+    
+    db.run(
+      `UPDATE transactions SET ${updateFields.join(', ')} WHERE id = ?`,
+      updateParams,
+      function(err) {
+        if (err) return res.status(500).json({ ok: false, error: err.message });
+        
+        // Update transaction items if provided
+        if (items && Array.isArray(items)) {
+          // First, get existing items to restore stock
+          db.all('SELECT * FROM transaction_items WHERE transaction_id = ?', [id], (err, existingItems) => {
+            if (err) return res.status(500).json({ ok: false, error: err.message });
+            
+            // Restore stock for existing items
+            db.serialize(() => {
+              existingItems.forEach(item => {
+                db.run(
+                  'UPDATE products SET stock = stock + ? WHERE id = ?',
+                  [item.quantity, item.product_id],
+                  function(err) {
+                    if (err) console.error('Error restoring stock for product:', item.product_id, err);
+                  }
+                );
+              });
+            });
+            
+            // Delete existing items
+            db.run('DELETE FROM transaction_items WHERE transaction_id = ?', [id], (err) => {
+              if (err) return res.status(500).json({ ok: false, error: err.message });
+              
+              // Insert new items and update stock
+              if (items.length > 0) {
+              const stmt = db.prepare(
+                `INSERT INTO transaction_items (id, transaction_id, product_id, product_name, quantity, price, total, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+              );
+              
+              const crypto = require('crypto');
+              const genId = () => crypto.randomBytes(16).toString('hex');
+              
+              db.serialize(() => {
+                items.forEach(item => {
+                  stmt.run([
+                    genId(),
+                    id,
+                    item.product_id,
+                    item.product_name || item.productName,
+                    Number(item.quantity),
+                    Number(item.price),
+                    Number(item.total || (item.quantity * item.price))
+                  ]);
+                  
+                  // Reduce stock for new items
+                  db.run(
+                    'UPDATE products SET stock = stock - ? WHERE id = ?',
+                    [Number(item.quantity), item.product_id],
+                    function(err) {
+                      if (err) console.error('Error reducing stock for product:', item.product_id, err);
+                    }
+                  );
+                });
+              });
+              
+              stmt.finalize(err => {
+                if (err) return res.status(500).json({ ok: false, error: err.message });
+                res.json({ ok: true, message: 'Transaksi berhasil diperbarui' });
+              });
+            } else {
+              res.json({ ok: true, message: 'Transaksi berhasil diperbarui' });
+            }
+            });
+          });
+        } else {
+          res.json({ ok: true, message: 'Transaksi berhasil diperbarui' });
+        }
+      }
+    );
+  });
+});
+
+app.delete('/api/transactions/:id', (req, res) => {
+  const id = req.params.id;
+  const db = getDb();
+  
+  // First, check if transaction exists and get its details
+  db.get('SELECT * FROM transactions WHERE id = ?', [id], (err, transaction) => {
+    if (err) return res.status(500).json({ ok: false, error: err.message });
+    if (!transaction) return res.status(404).json({ ok: false, error: 'Transaksi tidak ditemukan' });
+    
+    // Get transaction items to restore stock
+    db.all('SELECT * FROM transaction_items WHERE transaction_id = ?', [id], (err, items) => {
+      if (err) return res.status(500).json({ ok: false, error: err.message });
+      
+      db.serialize(() => {
+        // Restore stock for each item
+        items.forEach(item => {
+          db.run(
+            'UPDATE products SET stock = stock + ? WHERE id = ?',
+            [item.quantity, item.product_id],
+            function(err) {
+              if (err) console.error('Error restoring stock for product:', item.product_id, err);
+            }
+          );
+        });
+        
+        // Delete transaction items
+        db.run('DELETE FROM transaction_items WHERE transaction_id = ?', [id], function(err) {
+          if (err) return res.status(500).json({ ok: false, error: err.message });
+          
+          // Delete the transaction
+          db.run('DELETE FROM transactions WHERE id = ?', [id], function(err) {
+            if (err) return res.status(500).json({ ok: false, error: err.message });
+            res.json({ ok: true, message: 'Transaksi berhasil dihapus dan stok dikembalikan' });
+          });
+        });
+      });
+    });
+  });
+});
+
+// === EMPLOYEES API ===
+app.get('/api/employees', (req, res) => {
+  const db = getDb();
+  db.all(
+    `SELECT * FROM employees ORDER BY created_at DESC`,
+    [],
+    (err, rows) => {
+      if (err) return res.status(500).json({ ok: false, error: err.message });
+      res.json({ ok: true, data: rows });
+    }
+  );
+});
+
+app.post('/api/employees', (req, res) => {
+  const { name, position, base_salary, bonus = 0, start_date } = req.body || {};
+  if (!name || !position || !base_salary || !start_date) {
+    return res.status(400).json({ ok: false, error: 'Nama, jabatan, gaji pokok, dan tanggal masuk wajib diisi' });
+  }
+  
+  const id = crypto.randomUUID();
+  const db = getDb();
+  db.run(
+    `INSERT INTO employees (id, name, position, base_salary, bonus, start_date, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%S', 'now'), strftime('%Y-%m-%dT%H:%M:%S', 'now'))`,
+    [id, name, position, base_salary, bonus, start_date],
+    function(err) {
+      if (err) return res.status(500).json({ ok: false, error: err.message });
+      res.status(201).json({ ok: true, data: { id, name, position, base_salary, bonus, start_date, status: 'active' } });
+    }
+  );
+});
+
+app.put('/api/employees/:id', (req, res) => {
+  const { id } = req.params;
+  const { name, position, base_salary, bonus, start_date, status } = req.body || {};
+  
+  const db = getDb();
+  const fields = [];
+  const params = [];
+  
+  if (name) { fields.push('name = ?'); params.push(name); }
+  if (position) { fields.push('position = ?'); params.push(position); }
+  if (base_salary !== undefined) { fields.push('base_salary = ?'); params.push(base_salary); }
+  if (bonus !== undefined) { fields.push('bonus = ?'); params.push(bonus); }
+  if (start_date) { fields.push('start_date = ?'); params.push(start_date); }
+  if (status) { fields.push('status = ?'); params.push(status); }
+  
+  if (fields.length === 0) {
+    return res.status(400).json({ ok: false, error: 'Tidak ada data untuk diperbarui' });
+  }
+  
+  fields.push('updated_at = strftime(\'%Y-%m-%dT%H:%M:%S\', \'now\')');
+  params.push(id);
+  
+  db.run(
+    `UPDATE employees SET ${fields.join(', ')} WHERE id = ?`,
+    params,
+    function(err) {
+      if (err) return res.status(500).json({ ok: false, error: err.message });
+      if (this.changes === 0) return res.status(404).json({ ok: false, error: 'Karyawan tidak ditemukan' });
+      res.json({ ok: true, message: 'Data karyawan berhasil diperbarui' });
+    }
+  );
+});
+
+app.delete('/api/employees/:id', (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+  
+  db.run('DELETE FROM employees WHERE id = ?', [id], function(err) {
+    if (err) return res.status(500).json({ ok: false, error: err.message });
+    if (this.changes === 0) return res.status(404).json({ ok: false, error: 'Karyawan tidak ditemukan' });
+    res.json({ ok: true, message: 'Karyawan berhasil dihapus' });
+  });
+});
+
+// === PAYROLLS API ===
+app.get('/api/payrolls', (req, res) => {
+  const db = getDb();
+  db.all(
+    `SELECT p.*, e.name as employee_name, e.position 
+     FROM payrolls p 
+     LEFT JOIN employees e ON p.employee_id = e.id 
+     ORDER BY p.created_at DESC`,
+    [],
+    (err, rows) => {
+      if (err) return res.status(500).json({ ok: false, error: err.message });
+      res.json({ ok: true, data: rows });
+    }
+  );
+});
+
+app.post('/api/payrolls', (req, res) => {
+  const { employee_id, period_month, total_salary, payment_date, notes } = req.body || {};
+  if (!employee_id || !period_month || !total_salary || !payment_date) {
+    return res.status(400).json({ ok: false, error: 'Karyawan, periode bulan, total gaji, dan tanggal bayar wajib diisi' });
+  }
+  
+  const id = crypto.randomUUID();
+  const db = getDb();
+  db.run(
+    `INSERT INTO payrolls (id, employee_id, period_month, total_salary, payment_date, notes, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%S', 'now'), strftime('%Y-%m-%dT%H:%M:%S', 'now'))`,
+    [id, employee_id, period_month, total_salary, payment_date, notes || null],
+    function(err) {
+      if (err) return res.status(500).json({ ok: false, error: err.message });
+      res.status(201).json({ ok: true, data: { id, employee_id, period_month, total_salary, payment_date, notes } });
+    }
+  );
+});
+
+app.put('/api/payrolls/:id', (req, res) => {
+  const { id } = req.params;
+  const { employee_id, period_month, total_salary, payment_date, notes } = req.body || {};
+  
+  const db = getDb();
+  const fields = [];
+  const params = [];
+  
+  if (employee_id) { fields.push('employee_id = ?'); params.push(employee_id); }
+  if (period_month) { fields.push('period_month = ?'); params.push(period_month); }
+  if (total_salary !== undefined) { fields.push('total_salary = ?'); params.push(total_salary); }
+  if (payment_date) { fields.push('payment_date = ?'); params.push(payment_date); }
+  if (notes !== undefined) { fields.push('notes = ?'); params.push(notes); }
+  
+  if (fields.length === 0) {
+    return res.status(400).json({ ok: false, error: 'Tidak ada data untuk diperbarui' });
+  }
+  
+  fields.push('updated_at = strftime(\'%Y-%m-%dT%H:%M:%S\', \'now\')');
+  params.push(id);
+  
+  db.run(
+    `UPDATE payrolls SET ${fields.join(', ')} WHERE id = ?`,
+    params,
+    function(err) {
+      if (err) return res.status(500).json({ ok: false, error: err.message });
+      if (this.changes === 0) return res.status(404).json({ ok: false, error: 'Data penggajian tidak ditemukan' });
+      res.json({ ok: true, message: 'Data penggajian berhasil diperbarui' });
+    }
+  );
+});
+
+app.delete('/api/payrolls/:id', (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+  
+  db.run('DELETE FROM payrolls WHERE id = ?', [id], function(err) {
+    if (err) return res.status(500).json({ ok: false, error: err.message });
+    if (this.changes === 0) return res.status(404).json({ ok: false, error: 'Data penggajian tidak ditemukan' });
+    res.json({ ok: true, message: 'Data penggajian berhasil dihapus' });
+  });
+});
+
+// === EXPENSES API ===
+app.get('/api/expenses', (req, res) => {
+  const db = getDb();
+  db.all(
+    `SELECT * FROM expenses ORDER BY date DESC, created_at DESC`,
+    [],
+    (err, rows) => {
+      if (err) return res.status(500).json({ ok: false, error: err.message });
+      res.json({ ok: true, data: rows });
+    }
+  );
+});
+
+app.post('/api/expenses', (req, res) => {
+  const { category, description, amount, date, created_by } = req.body || {};
+  if (!category || !description || !amount || !date || !created_by) {
+    return res.status(400).json({ ok: false, error: 'Kategori, deskripsi, jumlah, tanggal, dan pembuat wajib diisi' });
+  }
+  
+  const id = crypto.randomUUID();
+  const db = getDb();
+  db.run(
+    `INSERT INTO expenses (id, category, description, amount, date, created_by, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%S', 'now'), strftime('%Y-%m-%dT%H:%M:%S', 'now'))`,
+    [id, category, description, amount, date, created_by],
+    function(err) {
+      if (err) return res.status(500).json({ ok: false, error: err.message });
+      res.status(201).json({ ok: true, data: { id, category, description, amount, date, created_by } });
+    }
+  );
+});
+
+app.put('/api/expenses/:id', (req, res) => {
+  const { id } = req.params;
+  const { category, description, amount, date } = req.body || {};
+  
+  const db = getDb();
+  const fields = [];
+  const params = [];
+  
+  if (category) { fields.push('category = ?'); params.push(category); }
+  if (description) { fields.push('description = ?'); params.push(description); }
+  if (amount !== undefined) { fields.push('amount = ?'); params.push(amount); }
+  if (date) { fields.push('date = ?'); params.push(date); }
+  
+  if (fields.length === 0) {
+    return res.status(400).json({ ok: false, error: 'Tidak ada data untuk diperbarui' });
+  }
+  
+  fields.push('updated_at = strftime(\'%Y-%m-%dT%H:%M:%S\', \'now\')');
+  params.push(id);
+  
+  db.run(
+    `UPDATE expenses SET ${fields.join(', ')} WHERE id = ?`,
+    params,
+    function(err) {
+      if (err) return res.status(500).json({ ok: false, error: err.message });
+      if (this.changes === 0) return res.status(404).json({ ok: false, error: 'Data pengeluaran tidak ditemukan' });
+      res.json({ ok: true, message: 'Data pengeluaran berhasil diperbarui' });
+    }
+  );
+});
+
+app.delete('/api/expenses/:id', (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+  
+  db.run('DELETE FROM expenses WHERE id = ?', [id], function(err) {
+    if (err) return res.status(500).json({ ok: false, error: err.message });
+    if (this.changes === 0) return res.status(404).json({ ok: false, error: 'Data pengeluaran tidak ditemukan' });
+    res.json({ ok: true, message: 'Data pengeluaran berhasil dihapus' });
   });
 });
 

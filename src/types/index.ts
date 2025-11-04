@@ -25,6 +25,8 @@ export interface Transaction {
   cashierId: string;
   items: TransactionItem[];
   subtotal: number;
+  discount?: number;
+  discountType?: 'percentage' | 'fixed';
   total: number;
   paymentMethod: 'cash';
   prescriptionId?: string;
@@ -45,7 +47,7 @@ export interface Prescription {
   patientName: string;
   date: string;
   medications: PrescriptionMedication[];
-  status: 'active' | 'used' | 'expired';
+  status: 'active' | 'used';
 }
 
 export interface PrescriptionMedication {
@@ -63,4 +65,40 @@ export interface Supplier {
   address: string;
   phone: string;
   email: string;
+}
+
+export interface Employee {
+  id: string;
+  name: string;
+  position: string;
+  baseSalary: number;
+  bonus: number;
+  startDate: string;
+  status: 'active' | 'inactive';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Payroll {
+  id: string;
+  employeeId: string;
+  employeeName?: string;
+  position?: string;
+  periodMonth: string;
+  totalSalary: number;
+  paymentDate: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Expense {
+  id: string;
+  category: string;
+  description: string;
+  amount: number;
+  date: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
 }

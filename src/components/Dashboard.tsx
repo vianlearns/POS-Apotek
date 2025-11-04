@@ -16,6 +16,7 @@ import {
   TrendingDown,
   AlertTriangle,
   DollarSign,
+  Receipt,
 } from 'lucide-react';
 import logo from '@/assets/logo.png';
 
@@ -27,6 +28,7 @@ import PrescriptionManagement from './PrescriptionManagement';
 // UserManagement removed - will be managed manually
 import SupplierManagement from './SupplierManagement';
 import UserManagement from './UserManagement';
+import TransactionManagement from './TransactionManagement';
 
 type ActiveTab =
   | 'dashboard'
@@ -34,6 +36,7 @@ type ActiveTab =
   | 'sales'
   | 'prescriptions'
   | 'suppliers'
+  | 'transactions'
   | 'reports'
   | 'users'
   | 'settings';
@@ -49,6 +52,7 @@ type DashboardStats = {
 const Dashboard = () => {
   const { user, userProfile, signOut } = useAuth();
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const [initialTransactionDateFilter, setInitialTransactionDateFilter] = useState<string | undefined>(undefined);
 
   const fetchJSON = async (url: string, options?: RequestInit) => {
     const res = await fetch(url, options);
@@ -59,7 +63,7 @@ const Dashboard = () => {
     return typeof json?.data !== 'undefined' ? json.data : json;
   };
 
-  // Real data from Supabase
+  
   const [stats, setStats] = useState<DashboardStats>({
     todaySales: 0,
     lowStock: 0,
@@ -145,12 +149,25 @@ const Dashboard = () => {
     fetchDashboardStats();
   }, []);
 
+  // Listen to navigation events from other modules (e.g., ReportsInterface)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{ date?: string }>;
+      const date = ce.detail?.date;
+      setActiveTab('transactions');
+      if (date) setInitialTransactionDateFilter(date);
+    };
+    window.addEventListener('navigateToTransactions', handler as EventListener);
+    return () => window.removeEventListener('navigateToTransactions', handler as EventListener);
+  }, []);
+
   const navigationItems = [
     { id: 'dashboard', label: 'Dashboard', icon: BarChart3, roles: ['admin', 'apoteker', 'kasir'] },
     { id: 'sales', label: 'Penjualan', icon: ShoppingCart, roles: ['admin', 'apoteker', 'kasir'] },
     { id: 'products', label: 'Produk', icon: Package, roles: ['admin', 'apoteker'] },
     { id: 'prescriptions', label: 'Resep', icon: FileText, roles: ['admin', 'apoteker'] },
     { id: 'suppliers', label: 'Supplier', icon: Users, roles: ['admin', 'apoteker'] },
+    { id: 'transactions', label: 'Transaksi', icon: Receipt, roles: ['admin', 'apoteker', 'kasir'] },
     { id: 'reports', label: 'Laporan', icon: BarChart3, roles: ['admin'] },
     { id: 'users', label: 'Pengguna', icon: Settings, roles: ['admin'] },
   ];
@@ -169,6 +186,8 @@ const Dashboard = () => {
         return <PrescriptionManagement />;
       case 'suppliers':
         return <SupplierManagement />;
+      case 'transactions':
+        return <TransactionManagement initialDateFilter={initialTransactionDateFilter} />;
       case 'reports':
         return <ReportsInterface />;
       case 'users':
