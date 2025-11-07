@@ -928,6 +928,132 @@ app.delete('/api/expenses/:id', (req, res) => {
   });
 });
 
+// === COLLECTIONS (INKASO) API ===
+app.get('/api/collections', (req, res) => {
+  const db = getDb();
+  db.all(
+    `SELECT * FROM collections ORDER BY date DESC, created_at DESC`,
+    [],
+    (err, rows) => {
+      if (err) return res.status(500).json({ ok: false, error: err.message });
+      res.json({ ok: true, data: rows });
+    }
+  );
+});
+
+app.post('/api/collections', (req, res) => {
+  const { date, amount } = req.body || {};
+  if (!date || typeof amount === 'undefined') {
+    return res.status(400).json({ ok: false, error: 'Tanggal dan jumlah inkaso wajib diisi' });
+  }
+  const id = crypto.randomUUID();
+  const db = getDb();
+  db.run(
+    `INSERT INTO collections (id, date, amount, created_at, updated_at)
+     VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%S', 'now'), strftime('%Y-%m-%dT%H:%M:%S', 'now'))`,
+    [id, date, Number(amount)],
+    function(err) {
+      if (err) return res.status(500).json({ ok: false, error: err.message });
+      res.status(201).json({ ok: true, data: { id, date, amount: Number(amount) } });
+    }
+  );
+});
+
+app.put('/api/collections/:id', (req, res) => {
+  const { id } = req.params;
+  const { date, amount } = req.body || {};
+  const db = getDb();
+  const fields = [];
+  const params = [];
+  if (typeof date !== 'undefined') { fields.push('date = ?'); params.push(date); }
+  if (typeof amount !== 'undefined') { fields.push('amount = ?'); params.push(Number(amount)); }
+  if (!fields.length) return res.status(400).json({ ok: false, error: 'Tidak ada data untuk diperbarui' });
+  fields.push(`updated_at = strftime('%Y-%m-%dT%H:%M:%S', 'now')`);
+  params.push(id);
+  db.run(
+    `UPDATE collections SET ${fields.join(', ')} WHERE id = ?`,
+    params,
+    function(err) {
+      if (err) return res.status(500).json({ ok: false, error: err.message });
+      if (this.changes === 0) return res.status(404).json({ ok: false, error: 'Data inkaso tidak ditemukan' });
+      res.json({ ok: true, message: 'Data inkaso berhasil diperbarui' });
+    }
+  );
+});
+
+app.delete('/api/collections/:id', (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+  db.run('DELETE FROM collections WHERE id = ?', [id], function(err) {
+    if (err) return res.status(500).json({ ok: false, error: err.message });
+    if (this.changes === 0) return res.status(404).json({ ok: false, error: 'Data inkaso tidak ditemukan' });
+    res.json({ ok: true, message: 'Data inkaso berhasil dihapus' });
+  });
+});
+
+// === PAYMENTS (BAYAR) API ===
+app.get('/api/payments', (req, res) => {
+  const db = getDb();
+  db.all(
+    `SELECT * FROM payments ORDER BY date DESC, created_at DESC`,
+    [],
+    (err, rows) => {
+      if (err) return res.status(500).json({ ok: false, error: err.message });
+      res.json({ ok: true, data: rows });
+    }
+  );
+});
+
+app.post('/api/payments', (req, res) => {
+  const { date, amount } = req.body || {};
+  if (!date || typeof amount === 'undefined') {
+    return res.status(400).json({ ok: false, error: 'Tanggal dan jumlah pembayaran wajib diisi' });
+  }
+  const id = crypto.randomUUID();
+  const db = getDb();
+  db.run(
+    `INSERT INTO payments (id, date, amount, created_at, updated_at)
+     VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%S', 'now'), strftime('%Y-%m-%dT%H:%M:%S', 'now'))`,
+    [id, date, Number(amount)],
+    function(err) {
+      if (err) return res.status(500).json({ ok: false, error: err.message });
+      res.status(201).json({ ok: true, data: { id, date, amount: Number(amount) } });
+    }
+  );
+});
+
+app.put('/api/payments/:id', (req, res) => {
+  const { id } = req.params;
+  const { date, amount } = req.body || {};
+  const db = getDb();
+  const fields = [];
+  const params = [];
+  if (typeof date !== 'undefined') { fields.push('date = ?'); params.push(date); }
+  if (typeof amount !== 'undefined') { fields.push('amount = ?'); params.push(Number(amount)); }
+  if (!fields.length) return res.status(400).json({ ok: false, error: 'Tidak ada data untuk diperbarui' });
+  fields.push(`updated_at = strftime('%Y-%m-%dT%H:%M:%S', 'now')`);
+  params.push(id);
+  db.run(
+    `UPDATE payments SET ${fields.join(', ')} WHERE id = ?`,
+    params,
+    function(err) {
+      if (err) return res.status(500).json({ ok: false, error: err.message });
+      if (this.changes === 0) return res.status(404).json({ ok: false, error: 'Data pembayaran tidak ditemukan' });
+      res.json({ ok: true, message: 'Data pembayaran berhasil diperbarui' });
+    }
+  );
+});
+
+app.delete('/api/payments/:id', (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+  db.run('DELETE FROM payments WHERE id = ?', [id], function(err) {
+    if (err) return res.status(500).json({ ok: false, error: err.message });
+    if (this.changes === 0) return res.status(404).json({ ok: false, error: 'Data pembayaran tidak ditemukan' });
+    res.json({ ok: true, message: 'Data pembayaran berhasil dihapus' });
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`HanumFarma backend berjalan di http://localhost:${PORT}`);
 });

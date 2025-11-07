@@ -102,3 +102,19 @@ export interface Expense {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface CollectionRecord {
+  id: string;
+  date: string;
+  amount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PaymentRecord {
+  id: string;
+  date: string;
+  amount: number;
+  createdAt: string;
+  updatedAt: string;
+}

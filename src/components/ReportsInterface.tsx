@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { API_BASE } from '../config/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,7 +27,7 @@ import {
   Edit,
   Trash2
 } from 'lucide-react';
-import { Employee, Payroll, Expense } from '../types';
+import { Employee, Payroll, Expense, CollectionRecord, PaymentRecord } from '../types';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
@@ -78,6 +78,10 @@ const ReportsInterface = () => {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [payrolls, setPayrolls] = useState<Payroll[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [collections, setCollections] = useState<CollectionRecord[]>([]);
+  const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [editingCollection, setEditingCollection] = useState<CollectionRecord | null>(null);
+  const [editingPayment, setEditingPayment] = useState<PaymentRecord | null>(null);
   const [showEmployeeDialog, setShowEmployeeDialog] = useState(false);
   const [showPayrollDialog, setShowPayrollDialog] = useState(false);
   const [showExpenseDialog, setShowExpenseDialog] = useState(false);
@@ -91,7 +95,27 @@ const ReportsInterface = () => {
     fetchEmployees();
     fetchPayrolls();
     fetchExpenses();
+    fetchCollections();
+    fetchPayments();
   }, [dateFrom, dateTo]);
+
+  const totals = useMemo(() => {
+    const from = new Date(dateFrom);
+    const to = new Date(dateTo);
+    const inkaso = (collections || [])
+      .filter((c: any) => {
+        const d = new Date(c.date);
+        return d >= from && d <= to;
+      })
+      .reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
+    const bayar = (payments || [])
+      .filter((p: any) => {
+        const d = new Date(p.date);
+        return d >= from && d <= to;
+      })
+      .reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
+    return { inkaso, bayar, tagihan: inkaso - bayar };
+  }, [dateFrom, dateTo, collections, payments]);
 
   const fetchReportsData = async () => {
     try {
@@ -269,6 +293,26 @@ const ReportsInterface = () => {
     }
   };
 
+  const fetchCollections = async () => {
+    try {
+      const data = await fetchJSON(`${API_BASE}/collections`);
+      const arr = Array.isArray(data) ? data : [];
+      setCollections(arr.map(mapCollectionRow));
+    } catch (error) {
+      console.error('Error fetching collections:', error);
+    }
+  };
+
+  const fetchPayments = async () => {
+    try {
+      const data = await fetchJSON(`${API_BASE}/payments`);
+      const arr = Array.isArray(data) ? data : [];
+      setPayments(arr.map(mapPaymentRow));
+    } catch (error) {
+      console.error('Error fetching payments:', error);
+    }
+  };
+
   const handleSaveEmployee = async (formData: FormData) => {
     try {
       const employeeData = {
@@ -411,6 +455,90 @@ const ReportsInterface = () => {
     } catch (error) {
       console.error('Error deleting expense:', error);
       toast({ title: "Error", description: "Gagal menghapus pengeluaran", variant: "destructive" });
+    }
+  };
+
+  const handleSaveCollection = async (formData: FormData) => {
+    try {
+      const collectionData = {
+        date: formData.get('date') as string,
+        amount: Number(formData.get('amount')),
+      };
+
+      if (editingCollection) {
+        await fetchJSON(`${API_BASE}/collections/${editingCollection.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(collectionData),
+        });
+        toast({ title: 'Berhasil', description: 'Data inkaso diperbarui' });
+      } else {
+        await fetchJSON(`${API_BASE}/collections`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(collectionData),
+        });
+        toast({ title: 'Berhasil', description: 'Inkaso baru ditambahkan' });
+      }
+      setEditingCollection(null);
+      fetchCollections();
+    } catch (error) {
+      console.error('Error saving collection:', error);
+      toast({ title: 'Error', description: 'Gagal menyimpan inkaso', variant: 'destructive' });
+    }
+  };
+
+  const handleDeleteCollection = async (id: string) => {
+    if (!confirm('Apakah Anda yakin ingin menghapus data inkaso ini?')) return;
+    try {
+      await fetchJSON(`${API_BASE}/collections/${id}`, { method: 'DELETE' });
+      toast({ title: 'Berhasil', description: 'Data inkaso dihapus' });
+      fetchCollections();
+    } catch (error) {
+      console.error('Error deleting collection:', error);
+      toast({ title: 'Error', description: 'Gagal menghapus inkaso', variant: 'destructive' });
+    }
+  };
+
+  const handleSavePayment = async (formData: FormData) => {
+    try {
+      const paymentData = {
+        date: formData.get('date') as string,
+        amount: Number(formData.get('amount')),
+      };
+
+      if (editingPayment) {
+        await fetchJSON(`${API_BASE}/payments/${editingPayment.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(paymentData),
+        });
+        toast({ title: 'Berhasil', description: 'Data pembayaran diperbarui' });
+      } else {
+        await fetchJSON(`${API_BASE}/payments`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(paymentData),
+        });
+        toast({ title: 'Berhasil', description: 'Pembayaran baru ditambahkan' });
+      }
+      setEditingPayment(null);
+      fetchPayments();
+    } catch (error) {
+      console.error('Error saving payment:', error);
+      toast({ title: 'Error', description: 'Gagal menyimpan pembayaran', variant: 'destructive' });
+    }
+  };
+
+  const handleDeletePayment = async (id: string) => {
+    if (!confirm('Apakah Anda yakin ingin menghapus data pembayaran ini?')) return;
+    try {
+      await fetchJSON(`${API_BASE}/payments/${id}`, { method: 'DELETE' });
+      toast({ title: 'Berhasil', description: 'Data pembayaran dihapus' });
+      fetchPayments();
+    } catch (error) {
+      console.error('Error deleting payment:', error);
+      toast({ title: 'Error', description: 'Gagal menghapus pembayaran', variant: 'destructive' });
     }
   };
 
@@ -560,6 +688,27 @@ const ReportsInterface = () => {
         })
         .reduce((sum: number, e: any) => sum + Number(e.amount || 0), 0);
 
+      // Inkaso (Collections) & Pembayaran Inkaso (Payments)
+      const collectionTotal = (collections || [])
+        .filter((c: any) => {
+          const d = new Date(c.date);
+          const from = new Date(dateFrom);
+          const to = new Date(dateTo);
+          return d >= from && d <= to;
+        })
+        .reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
+
+      const paymentTotal = (payments || [])
+        .filter((p: any) => {
+          const d = new Date(p.date);
+          const from = new Date(dateFrom);
+          const to = new Date(dateTo);
+          return d >= from && d <= to;
+        })
+        .reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
+
+      const receivableTotal = collectionTotal - paymentTotal;
+
       const profitLoss = Number(financials.omzet) - Number(financials.cogs) - Number(financials.discounts) - payrollTotal - expenseTotal;
       const plSummary = [
         ['LAPORAN LABA RUGI'],
@@ -570,11 +719,14 @@ const ReportsInterface = () => {
         ['Diskon Transaksi', Number(financials.discounts)],
         ['Gaji Karyawan', payrollTotal],
         ['Pengeluaran', expenseTotal],
+        ['Inkaso (Tagihan dibuat)', collectionTotal],
+        ['Pembayaran Inkaso', paymentTotal],
+        ['Tagihan (Inkaso - Pembayaran)', receivableTotal],
         ['Laba Rugi', profitLoss],
       ];
       const wsPL = XLSX.utils.aoa_to_sheet(plSummary);
       const rangePL = XLSX.utils.decode_range(wsPL['!ref'] as string);
-      for (let R = 3; R <= 8; R++) {
+      for (let R = 3; R <= 11; R++) {
         const cell = wsPL[XLSX.utils.encode_cell({ r: R, c: 1 })];
         if (cell && typeof cell.v === 'number') {
           cell.t = 'n';
@@ -743,6 +895,46 @@ const ReportsInterface = () => {
       ];
       XLSX.utils.book_append_sheet(wb, wsExpenses, 'Pengeluaran');
 
+      // Inkaso Sheet (Detail per baris)
+      const inkasoSheet = [
+        ['DATA INKASO'],
+        [`Periode: ${dateFrom} sampai ${dateTo}`],
+        [''],
+        ['Tanggal', 'Jenis', 'Jumlah']
+      ];
+      (collections || []).forEach((c: any) => {
+        inkasoSheet.push([
+          c.date || '-',
+          'Inkaso',
+          Number(c.amount || 0),
+        ]);
+      });
+      (payments || []).forEach((p: any) => {
+        inkasoSheet.push([
+          p.date || '-',
+          'Pembayaran',
+          Number(p.amount || 0),
+        ]);
+      });
+      const wsInkaso = XLSX.utils.aoa_to_sheet(inkasoSheet);
+      const rangeInkaso = XLSX.utils.decode_range(wsInkaso['!ref'] as string);
+      for (let R = 4; R <= rangeInkaso.e.r; R++) {
+        const cell = wsInkaso[XLSX.utils.encode_cell({ r: R, c: 2 })];
+        if (cell && typeof cell.v === 'number') {
+          cell.t = 'n';
+          cell.z = '#,##0';
+        }
+      }
+      wsInkaso['!cols'] = [
+        { wch: 14 },
+        { wch: 16 },
+        { wch: 14 },
+      ];
+      wsInkaso['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 2 } }
+      ];
+      XLSX.utils.book_append_sheet(wb, wsInkaso, 'Inkaso');
+
       // Generate filename with current date
       const today = new Date();
       const filename = `Laporan_Apotek_${today.getFullYear()}-${(today.getMonth()+1).toString().padStart(2, '0')}-${today.getDate().toString().padStart(2, '0')}.xlsx`;
@@ -839,6 +1031,7 @@ const ReportsInterface = () => {
           <TabsTrigger value="stock" className="data-[state=active]:bg-secondary data-[state=active]:text-secondary-foreground">Stok</TabsTrigger>
           <TabsTrigger value="employees" className="data-[state=active]:bg-accent data-[state=active]:text-accent-foreground">Karyawan</TabsTrigger>
           <TabsTrigger value="expenses" className="data-[state=active]:bg-destructive data-[state=active]:text-destructive-foreground">Pengeluaran</TabsTrigger>
+          <TabsTrigger value="inkaso" className="data-[state=active]:bg-secondary data-[state=active]:text-secondary-foreground">Inkaso</TabsTrigger>
           <TabsTrigger value="profit" className="data-[state=active]:bg-accent data-[state=active]:text-accent-foreground">Laba Rugi</TabsTrigger>
         </TabsList>
 
@@ -1008,6 +1201,173 @@ const ReportsInterface = () => {
                 </TableBody>
               </Table>
             </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="inkaso" className="space-y-4">
+          {/* Ringkasan Inkaso/Bayar */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Ringkasan Inkaso</CardTitle>
+              <CardDescription>Periode {dateFrom} - {dateTo}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="stats-card p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-muted-foreground">Total Inkaso</span>
+                    <DollarSign className="h-4 w-4 text-secondary" />
+                  </div>
+                  <div className="text-xl font-bold text-secondary">Rp {totals.inkaso.toLocaleString('id-ID')}</div>
+                </div>
+                <div className="stats-card p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-muted-foreground">Total Bayar</span>
+                    <DollarSign className="h-4 w-4 text-primary" />
+                  </div>
+                  <div className="text-xl font-bold text-primary">Rp {totals.bayar.toLocaleString('id-ID')}</div>
+                </div>
+                <div className="stats-card p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-muted-foreground">Total Tagihan</span>
+                    <Receipt className="h-4 w-4 text-destructive" />
+                  </div>
+                  <div className="text-xl font-bold text-destructive">Rp {totals.tagihan.toLocaleString('id-ID')}</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Form Inkaso & Bayar */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Form Inkaso</CardTitle>
+                <CardDescription>Input tanggal dan jumlah inkaso</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form key={editingCollection?.id || 'new-collection'} onSubmit={(e) => { e.preventDefault(); handleSaveCollection(new FormData(e.currentTarget)); e.currentTarget.reset(); }} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="collectionDate">Tanggal</Label>
+                    <Input id="collectionDate" name="date" type="date" defaultValue={editingCollection?.date?.split('T')[0] || ''} required />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="collectionAmount">Inkaso</Label>
+                    <Input id="collectionAmount" name="amount" type="number" defaultValue={editingCollection?.amount ?? ''} required />
+                  </div>
+                  <div className="flex justify-end space-x-2">
+                    {editingCollection && (
+                      <Button type="button" variant="outline" onClick={() => setEditingCollection(null)}>Batal</Button>
+                    )}
+                    <Button type="submit">{editingCollection ? 'Perbarui' : 'Simpan'}</Button>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Form Bayar</CardTitle>
+                <CardDescription>Input tanggal dan jumlah pembayaran</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form key={editingPayment?.id || 'new-payment'} onSubmit={(e) => { e.preventDefault(); handleSavePayment(new FormData(e.currentTarget)); e.currentTarget.reset(); }} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="paymentDate">Tanggal</Label>
+                    <Input id="paymentDate" name="date" type="date" defaultValue={editingPayment?.date?.split('T')[0] || ''} required />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="paymentAmount">Pembayaran</Label>
+                    <Input id="paymentAmount" name="amount" type="number" defaultValue={editingPayment?.amount ?? ''} required />
+                  </div>
+                  <div className="flex justify-end space-x-2">
+                    {editingPayment && (
+                      <Button type="button" variant="outline" onClick={() => setEditingPayment(null)}>Batal</Button>
+                    )}
+                    <Button type="submit">{editingPayment ? 'Perbarui' : 'Simpan'}</Button>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Daftar Inkaso & Pembayaran */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Receipt className="h-5 w-5 mr-2" />
+                  Daftar Inkaso
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Tanggal</TableHead>
+                      <TableHead>Inkaso</TableHead>
+                      <TableHead>Aksi</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {collections.map((c) => (
+                      <TableRow key={c.id}>
+                        <TableCell>{new Date(c.date).toLocaleDateString('id-ID')}</TableCell>
+                        <TableCell>Rp {Number(c.amount).toLocaleString('id-ID')}</TableCell>
+                        <TableCell>
+                          <div className="flex space-x-2">
+                            <Button size="sm" variant="outline" onClick={() => setEditingCollection(c)}>
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button size="sm" variant="destructive" onClick={() => handleDeleteCollection(c.id)}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Receipt className="h-5 w-5 mr-2" />
+                  Daftar Pembayaran
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Tanggal</TableHead>
+                      <TableHead>Pembayaran</TableHead>
+                      <TableHead>Aksi</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {payments.map((p) => (
+                      <TableRow key={p.id}>
+                        <TableCell>{new Date(p.date).toLocaleDateString('id-ID')}</TableCell>
+                        <TableCell>Rp {Number(p.amount).toLocaleString('id-ID')}</TableCell>
+                        <TableCell>
+                          <div className="flex space-x-2">
+                            <Button size="sm" variant="outline" onClick={() => setEditingPayment(p)}>
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button size="sm" variant="destructive" onClick={() => handleDeletePayment(p.id)}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
           </div>
         </TabsContent>
 
@@ -1492,6 +1852,23 @@ const ReportsInterface = () => {
                 </div>
               </div>
 
+              {/* Inkaso */}
+              <div className="space-y-3">
+                <h4 className="font-semibold text-lg">Inkaso</h4>
+                <div className="flex justify-between">
+                  <span>Inkaso (Tagihan dibuat)</span>
+                  <span className="font-medium text-red-600">Rp {Number(totals.inkaso || 0).toLocaleString('id-ID')}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Pembayaran Inkaso</span>
+                  <span className="font-medium text-green-600">Rp {Number(totals.bayar || 0).toLocaleString('id-ID')}</span>
+                </div>
+                <div className="flex justify-between border-t pt-2 font-semibold">
+                  <span>Tagihan (Inkaso - Pembayaran)</span>
+                  <span className={`font-medium ${Number(totals.tagihan || 0) > 0 ? 'text-red-600' : 'text-green-600'}`}>Rp {Number(totals.tagihan || 0).toLocaleString('id-ID')}</span>
+                </div>
+              </div>
+
               {/* Pengeluaran */}
               <div className="space-y-3">
                 <h4 className="font-semibold text-lg text-destructive">Pengeluaran</h4>
@@ -1524,6 +1901,22 @@ const ReportsInterface = () => {
                   <span className="font-medium text-red-600">Rp {financials.discounts.toLocaleString('id-ID')}</span>
                 </div>
 
+                {/* Pengeluaran Operasional */}
+                <div className="flex justify-between">
+                  <span>Pengeluaran Operasional</span>
+                  <span className="font-medium text-red-600">
+                    Rp {expenses
+                      .filter(e => {
+                        const d = new Date(e.date);
+                        const fromDate = new Date(dateFrom);
+                        const toDate = new Date(dateTo);
+                        return d >= fromDate && d <= toDate;
+                      })
+                      .reduce((sum, e) => sum + e.amount, 0)
+                      .toLocaleString('id-ID')}
+                  </span>
+                </div>
+
                 <div className="flex justify-between border-t pt-2 font-semibold">
                   <span>Total Pengeluaran</span>
                   <span className="text-red-600">
@@ -1537,7 +1930,15 @@ const ReportsInterface = () => {
                           const toDate = new Date(dateTo);
                           return paymentDate >= fromDate && paymentDate <= toDate;
                         })
-                        .reduce((sum, p) => sum + p.totalSalary, 0)
+                        .reduce((sum, p) => sum + p.totalSalary, 0) +
+                      expenses
+                        .filter(e => {
+                          const d = new Date(e.date);
+                          const fromDate = new Date(dateFrom);
+                          const toDate = new Date(dateTo);
+                          return d >= fromDate && d <= toDate;
+                        })
+                        .reduce((sum, e) => sum + e.amount, 0)
                     ).toLocaleString('id-ID')}
                   </span>
                 </div>
@@ -1556,7 +1957,15 @@ const ReportsInterface = () => {
                          const toDate = new Date(dateTo);
                          return paymentDate >= fromDate && paymentDate <= toDate;
                        })
-                       .reduce((sum, p) => sum + p.totalSalary, 0)) >= 0 
+                       .reduce((sum, p) => sum + p.totalSalary, 0) -
+                      expenses
+                        .filter(e => {
+                          const d = new Date(e.date);
+                          const fromDate = new Date(dateFrom);
+                          const toDate = new Date(dateTo);
+                          return d >= fromDate && d <= toDate;
+                        })
+                        .reduce((sum, e) => sum + e.amount, 0)) >= 0 
                     ? "text-green-600" 
                     : "text-red-600"
                   }>
@@ -1569,7 +1978,15 @@ const ReportsInterface = () => {
                           const toDate = new Date(dateTo);
                           return paymentDate >= fromDate && paymentDate <= toDate;
                         })
-                        .reduce((sum, p) => sum + p.totalSalary, 0)
+                        .reduce((sum, p) => sum + p.totalSalary, 0) -
+                      expenses
+                        .filter(e => {
+                          const d = new Date(e.date);
+                          const fromDate = new Date(dateFrom);
+                          const toDate = new Date(dateTo);
+                          return d >= fromDate && d <= toDate;
+                        })
+                        .reduce((sum, e) => sum + e.amount, 0)
                     ).toLocaleString('id-ID')}
                   </span>
                 </div>
@@ -1668,6 +2085,22 @@ export default ReportsInterface;
     amount: Number(row.amount),
     date: row.date,
     createdBy: row.created_by,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  });
+
+  const mapCollectionRow = (row: any): CollectionRecord => ({
+    id: row.id,
+    date: row.date,
+    amount: Number(row.amount),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  });
+
+  const mapPaymentRow = (row: any): PaymentRecord => ({
+    id: row.id,
+    date: row.date,
+    amount: Number(row.amount),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   });

@@ -182,6 +182,28 @@ function ensureDb() {
         updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now'))
       );
     `);
+
+    // --- Collections (Inkaso) ---
+    db.run(`
+      CREATE TABLE IF NOT EXISTS collections (
+        id TEXT PRIMARY KEY,
+        date TEXT NOT NULL,
+        amount REAL NOT NULL,
+        created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now')),
+        updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now'))
+      );
+    `);
+
+    // --- Payments (Bayar) ---
+    db.run(`
+      CREATE TABLE IF NOT EXISTS payments (
+        id TEXT PRIMARY KEY,
+        date TEXT NOT NULL,
+        amount REAL NOT NULL,
+        created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now')),
+        updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now'))
+      );
+    `);
   });
 
   return db;
