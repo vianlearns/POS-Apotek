@@ -29,16 +29,18 @@ import PrescriptionManagement from './PrescriptionManagement';
 import SupplierManagement from './SupplierManagement';
 import UserManagement from './UserManagement';
 import TransactionManagement from './TransactionManagement';
+import InkasoManagement from './InkasoManagement';
 
 type ActiveTab =
   | 'dashboard'
-  | 'products'
   | 'sales'
+  | 'products'
   | 'prescriptions'
   | 'suppliers'
   | 'transactions'
   | 'reports'
   | 'users'
+  | 'inkaso'
   | 'settings';
 
 type DashboardStats = {
@@ -70,6 +72,18 @@ const Dashboard = () => {
     expiringProducts: 0,
     pendingPrescriptions: 0,
     salesTrend: { percentage: 0, isPositive: true },
+  });
+
+  // State untuk tanggal di komponen Inkaso
+  const [inkasoDateFrom, setInkasoDateFrom] = useState(() => {
+    const firstDayOfMonth = new Date();
+    firstDayOfMonth.setDate(1);
+    return firstDayOfMonth.toISOString().split('T')[0];
+  });
+  const [inkasoDateTo, setInkasoDateTo] = useState(() => {
+    const lastDayOfMonth = new Date();
+    lastDayOfMonth.setMonth(lastDayOfMonth.getMonth() + 1, 0);
+    return lastDayOfMonth.toISOString().split('T')[0];
   });
 
   useEffect(() => {
@@ -168,6 +182,7 @@ const Dashboard = () => {
     { id: 'prescriptions', label: 'Resep', icon: FileText, roles: ['admin', 'apoteker'] },
     { id: 'suppliers', label: 'Supplier', icon: Users, roles: ['admin', 'apoteker'] },
     { id: 'transactions', label: 'Transaksi', icon: Receipt, roles: ['admin', 'apoteker', 'kasir'] },
+    { id: 'inkaso', label: 'Inkaso', icon: DollarSign, roles: ['admin', 'apoteker'] },
     { id: 'reports', label: 'Laporan', icon: BarChart3, roles: ['admin'] },
     { id: 'users', label: 'Pengguna', icon: Settings, roles: ['admin'] },
   ];
@@ -188,6 +203,8 @@ const Dashboard = () => {
         return <SupplierManagement />;
       case 'transactions':
         return <TransactionManagement initialDateFilter={initialTransactionDateFilter} />;
+      case 'inkaso':
+        return <InkasoManagement dateFrom={inkasoDateFrom} dateTo={inkasoDateTo} />;
       case 'reports':
         return <ReportsInterface />;
       case 'users':

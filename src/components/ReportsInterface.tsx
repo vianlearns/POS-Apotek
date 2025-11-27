@@ -80,8 +80,7 @@ const ReportsInterface = () => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [collections, setCollections] = useState<CollectionRecord[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
-  const [editingCollection, setEditingCollection] = useState<CollectionRecord | null>(null);
-  const [editingPayment, setEditingPayment] = useState<PaymentRecord | null>(null);
+
   const [showEmployeeDialog, setShowEmployeeDialog] = useState(false);
   const [showPayrollDialog, setShowPayrollDialog] = useState(false);
   const [showExpenseDialog, setShowExpenseDialog] = useState(false);
@@ -297,7 +296,13 @@ const ReportsInterface = () => {
     try {
       const data = await fetchJSON(`${API_BASE}/collections`);
       const arr = Array.isArray(data) ? data : [];
-      setCollections(arr.map(mapCollectionRow));
+      setCollections(arr.map((row: any) => ({
+        id: row.id,
+        date: row.date,
+        amount: Number(row.amount),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      })));
     } catch (error) {
       console.error('Error fetching collections:', error);
     }
@@ -307,7 +312,13 @@ const ReportsInterface = () => {
     try {
       const data = await fetchJSON(`${API_BASE}/payments`);
       const arr = Array.isArray(data) ? data : [];
-      setPayments(arr.map(mapPaymentRow));
+      setPayments(arr.map((row: any) => ({
+        id: row.id,
+        date: row.date,
+        amount: Number(row.amount),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      })));
     } catch (error) {
       console.error('Error fetching payments:', error);
     }
@@ -458,89 +469,9 @@ const ReportsInterface = () => {
     }
   };
 
-  const handleSaveCollection = async (formData: FormData) => {
-    try {
-      const collectionData = {
-        date: formData.get('date') as string,
-        amount: Number(formData.get('amount')),
-      };
 
-      if (editingCollection) {
-        await fetchJSON(`${API_BASE}/collections/${editingCollection.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(collectionData),
-        });
-        toast({ title: 'Berhasil', description: 'Data inkaso diperbarui' });
-      } else {
-        await fetchJSON(`${API_BASE}/collections`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(collectionData),
-        });
-        toast({ title: 'Berhasil', description: 'Inkaso baru ditambahkan' });
-      }
-      setEditingCollection(null);
-      fetchCollections();
-    } catch (error) {
-      console.error('Error saving collection:', error);
-      toast({ title: 'Error', description: 'Gagal menyimpan inkaso', variant: 'destructive' });
-    }
-  };
 
-  const handleDeleteCollection = async (id: string) => {
-    if (!confirm('Apakah Anda yakin ingin menghapus data inkaso ini?')) return;
-    try {
-      await fetchJSON(`${API_BASE}/collections/${id}`, { method: 'DELETE' });
-      toast({ title: 'Berhasil', description: 'Data inkaso dihapus' });
-      fetchCollections();
-    } catch (error) {
-      console.error('Error deleting collection:', error);
-      toast({ title: 'Error', description: 'Gagal menghapus inkaso', variant: 'destructive' });
-    }
-  };
 
-  const handleSavePayment = async (formData: FormData) => {
-    try {
-      const paymentData = {
-        date: formData.get('date') as string,
-        amount: Number(formData.get('amount')),
-      };
-
-      if (editingPayment) {
-        await fetchJSON(`${API_BASE}/payments/${editingPayment.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(paymentData),
-        });
-        toast({ title: 'Berhasil', description: 'Data pembayaran diperbarui' });
-      } else {
-        await fetchJSON(`${API_BASE}/payments`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(paymentData),
-        });
-        toast({ title: 'Berhasil', description: 'Pembayaran baru ditambahkan' });
-      }
-      setEditingPayment(null);
-      fetchPayments();
-    } catch (error) {
-      console.error('Error saving payment:', error);
-      toast({ title: 'Error', description: 'Gagal menyimpan pembayaran', variant: 'destructive' });
-    }
-  };
-
-  const handleDeletePayment = async (id: string) => {
-    if (!confirm('Apakah Anda yakin ingin menghapus data pembayaran ini?')) return;
-    try {
-      await fetchJSON(`${API_BASE}/payments/${id}`, { method: 'DELETE' });
-      toast({ title: 'Berhasil', description: 'Data pembayaran dihapus' });
-      fetchPayments();
-    } catch (error) {
-      console.error('Error deleting payment:', error);
-      toast({ title: 'Error', description: 'Gagal menghapus pembayaran', variant: 'destructive' });
-    }
-  };
 
   const exportToExcel = async () => {
     try {
@@ -1031,7 +962,6 @@ const ReportsInterface = () => {
           <TabsTrigger value="stock" className="data-[state=active]:bg-secondary data-[state=active]:text-secondary-foreground">Stok</TabsTrigger>
           <TabsTrigger value="employees" className="data-[state=active]:bg-accent data-[state=active]:text-accent-foreground">Karyawan</TabsTrigger>
           <TabsTrigger value="expenses" className="data-[state=active]:bg-destructive data-[state=active]:text-destructive-foreground">Pengeluaran</TabsTrigger>
-          <TabsTrigger value="inkaso" className="data-[state=active]:bg-secondary data-[state=active]:text-secondary-foreground">Inkaso</TabsTrigger>
           <TabsTrigger value="profit" className="data-[state=active]:bg-accent data-[state=active]:text-accent-foreground">Laba Rugi</TabsTrigger>
         </TabsList>
 
@@ -1134,7 +1064,7 @@ const ReportsInterface = () => {
           </Card>
 
           {/* Sales by Period */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 gap-6">
             <div className="medical-card p-6">
               <div className="flex items-center space-x-3 mb-4">
                 <div className="p-2 rounded-lg bg-primary/10">
@@ -1171,203 +1101,6 @@ const ReportsInterface = () => {
                 </TableBody>
               </Table>
             </div>
-
-            <div className="medical-card p-6">
-              <div className="flex items-center space-x-3 mb-4">
-                <div className="p-2 rounded-lg bg-secondary/10">
-                  <TrendingUp className="h-5 w-5 text-secondary" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground">Produk Terlaris</h3>
-                  <p className="text-sm text-muted-foreground">Bulan ini</p>
-                </div>
-              </div>
-              <Table>
-                <TableHeader>
-                  <TableRow className="border-border/50">
-                    <TableHead className="font-semibold">Produk</TableHead>
-                    <TableHead className="font-semibold">Qty</TableHead>
-                    <TableHead className="font-semibold">Revenue</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {topProducts.map((product, index) => (
-                    <TableRow key={index} className="border-border/30 hover:bg-muted/30">
-                      <TableCell className="font-medium">{product.name}</TableCell>
-                      <TableCell>{product.quantity}</TableCell>
-                      <TableCell className="font-medium text-secondary">Rp {product.revenue.toLocaleString('id-ID')}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="inkaso" className="space-y-4">
-          {/* Ringkasan Inkaso/Bayar */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Ringkasan Inkaso</CardTitle>
-              <CardDescription>Periode {dateFrom} - {dateTo}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="stats-card p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm text-muted-foreground">Total Inkaso</span>
-                    <DollarSign className="h-4 w-4 text-secondary" />
-                  </div>
-                  <div className="text-xl font-bold text-secondary">Rp {totals.inkaso.toLocaleString('id-ID')}</div>
-                </div>
-                <div className="stats-card p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm text-muted-foreground">Total Bayar</span>
-                    <DollarSign className="h-4 w-4 text-primary" />
-                  </div>
-                  <div className="text-xl font-bold text-primary">Rp {totals.bayar.toLocaleString('id-ID')}</div>
-                </div>
-                <div className="stats-card p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm text-muted-foreground">Total Tagihan</span>
-                    <Receipt className="h-4 w-4 text-destructive" />
-                  </div>
-                  <div className="text-xl font-bold text-destructive">Rp {totals.tagihan.toLocaleString('id-ID')}</div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Form Inkaso & Bayar */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Form Inkaso</CardTitle>
-                <CardDescription>Input tanggal dan jumlah inkaso</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <form key={editingCollection?.id || 'new-collection'} onSubmit={(e) => { e.preventDefault(); handleSaveCollection(new FormData(e.currentTarget)); e.currentTarget.reset(); }} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="collectionDate">Tanggal</Label>
-                    <Input id="collectionDate" name="date" type="date" defaultValue={editingCollection?.date?.split('T')[0] || ''} required />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="collectionAmount">Inkaso</Label>
-                    <Input id="collectionAmount" name="amount" type="number" defaultValue={editingCollection?.amount ?? ''} required />
-                  </div>
-                  <div className="flex justify-end space-x-2">
-                    {editingCollection && (
-                      <Button type="button" variant="outline" onClick={() => setEditingCollection(null)}>Batal</Button>
-                    )}
-                    <Button type="submit">{editingCollection ? 'Perbarui' : 'Simpan'}</Button>
-                  </div>
-                </form>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Form Bayar</CardTitle>
-                <CardDescription>Input tanggal dan jumlah pembayaran</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <form key={editingPayment?.id || 'new-payment'} onSubmit={(e) => { e.preventDefault(); handleSavePayment(new FormData(e.currentTarget)); e.currentTarget.reset(); }} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="paymentDate">Tanggal</Label>
-                    <Input id="paymentDate" name="date" type="date" defaultValue={editingPayment?.date?.split('T')[0] || ''} required />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="paymentAmount">Pembayaran</Label>
-                    <Input id="paymentAmount" name="amount" type="number" defaultValue={editingPayment?.amount ?? ''} required />
-                  </div>
-                  <div className="flex justify-end space-x-2">
-                    {editingPayment && (
-                      <Button type="button" variant="outline" onClick={() => setEditingPayment(null)}>Batal</Button>
-                    )}
-                    <Button type="submit">{editingPayment ? 'Perbarui' : 'Simpan'}</Button>
-                  </div>
-                </form>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Daftar Inkaso & Pembayaran */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Receipt className="h-5 w-5 mr-2" />
-                  Daftar Inkaso
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Tanggal</TableHead>
-                      <TableHead>Inkaso</TableHead>
-                      <TableHead>Aksi</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {collections.map((c) => (
-                      <TableRow key={c.id}>
-                        <TableCell>{new Date(c.date).toLocaleDateString('id-ID')}</TableCell>
-                        <TableCell>Rp {Number(c.amount).toLocaleString('id-ID')}</TableCell>
-                        <TableCell>
-                          <div className="flex space-x-2">
-                            <Button size="sm" variant="outline" onClick={() => setEditingCollection(c)}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button size="sm" variant="destructive" onClick={() => handleDeleteCollection(c.id)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Receipt className="h-5 w-5 mr-2" />
-                  Daftar Pembayaran
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Tanggal</TableHead>
-                      <TableHead>Pembayaran</TableHead>
-                      <TableHead>Aksi</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {payments.map((p) => (
-                      <TableRow key={p.id}>
-                        <TableCell>{new Date(p.date).toLocaleDateString('id-ID')}</TableCell>
-                        <TableCell>Rp {Number(p.amount).toLocaleString('id-ID')}</TableCell>
-                        <TableCell>
-                          <div className="flex space-x-2">
-                            <Button size="sm" variant="outline" onClick={() => setEditingPayment(p)}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button size="sm" variant="destructive" onClick={() => handleDeletePayment(p.id)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
           </div>
         </TabsContent>
 
@@ -2085,22 +1818,6 @@ export default ReportsInterface;
     amount: Number(row.amount),
     date: row.date,
     createdBy: row.created_by,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  });
-
-  const mapCollectionRow = (row: any): CollectionRecord => ({
-    id: row.id,
-    date: row.date,
-    amount: Number(row.amount),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  });
-
-  const mapPaymentRow = (row: any): PaymentRecord => ({
-    id: row.id,
-    date: row.date,
-    amount: Number(row.amount),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   });
