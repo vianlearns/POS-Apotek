@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { API_BASE } from '../config/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -43,18 +43,27 @@ const fetchJSON = async (url: string, options?: RequestInit) => {
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import * as XLSX from 'xlsx';
-import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
+
 
 const ReportsInterface = () => {
-  // Set default dates to current month
+  // Set default dates to last 30 days (WIB timezone)
   const currentDate = new Date();
-  const firstDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-  const lastDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+  const thirtyDaysAgo = new Date(currentDate);
+  thirtyDaysAgo.setDate(currentDate.getDate() - 30);
+  
+  // Convert to WIB timezone (UTC+7) and format as YYYY-MM-DD
+  const formatDateToWIB = (date: Date) => {
+    // Create date in WIB timezone (UTC+7)
+    const wibOffset = 7 * 60; // WIB is UTC+7
+    const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
+    const wibDate = new Date(utc + (wibOffset * 60000));
+    return wibDate.toISOString().split('T')[0];
+  };
+  
   const { userProfile } = useAuth();
   
-  const [dateFrom, setDateFrom] = useState(firstDayOfMonth.toISOString().split('T')[0]);
-  const [dateTo, setDateTo] = useState(lastDayOfMonth.toISOString().split('T')[0]);
+  const [dateFrom, setDateFrom] = useState(formatDateToWIB(thirtyDaysAgo));
+  const [dateTo, setDateTo] = useState(formatDateToWIB(currentDate));
   const [loading, setLoading] = useState(true);
   const [salesData, setSalesData] = useState<any>({
     daily: [],
@@ -137,30 +146,103 @@ const ReportsInterface = () => {
 
       // Fetch previous period sales data for comparison
       const prevTransactionsData = await fetchJSON(
-        `${API_BASE}/transactions?from=${prevFromDate.toISOString().split('T')[0]}&to=${prevToDate.toISOString().split('T')[0]}&status=completed`
+        `${API_BASE}/transactions?from=${formatDateToWIB(prevFromDate)}&to=${formatDateToWIB(prevToDate)}&status=completed`
       );
+      
+      // Reset daily sales map
+      const dailySalesMap = {};
+      
+      // Pastikan transactionsData adalah array dan proses grouping
+      if (Array.isArray(transactionsData) && transactionsData.length > 0) {
+        transactionsData.forEach((item: any) => {
+          // Ambil tanggal saja (YYYY-MM-DD) dari format ISO
+          let dateKey = '';
+          
+          try {
+            if (item.date) {
+              // Format date: "2025-11-29 05:02:31.079196+00" atau ISO
+              if (typeof item.date === 'string') {
+                // Ambil bagian YYYY-MM-DD saja
+                dateKey = item.date.substring(0, 10);
+              } else {
+                dateKey = formatDateToWIB(new Date(item.date));
+              }
+            }
+          } catch (e) {
+            console.warn('Error parsing date:', item.date, e);
+            return;
+          }
+          
+          if (!dateKey) return;
 
-      // Process sales data
-      const dailySales = transactionsData?.reduce((acc: any, transaction: any) => {
-        const date = transaction.date.split('T')[0];
-        if (!acc[date]) {
-          acc[date] = { date, sales: 0, transactions: 0 };
-        }
-        acc[date].sales += Number(transaction.total);
-        acc[date].transactions += 1;
-        return acc;
-      }, {});
+          // Initialize jika belum ada
+          if (!dailySalesMap[dateKey]) {
+            dailySalesMap[dateKey] = { 
+              date: dateKey, 
+              sales: 0, 
+              transactions: 0 
+            };
+          }
+          
+          // Tambahkan sales dan increment transactions - PAKAI FIELD YANG BENAR
+          const itemSales = Number(item.sales || item.total || 0);
+          const itemTransactions = Number(item.transactions || 1);
+          
+          dailySalesMap[dateKey].sales += itemSales;
+          dailySalesMap[dateKey].transactions += itemTransactions;
+        
+        });
+      }
 
-      const tx = Array.isArray(transactionsData) ? transactionsData : [];
-      const totalRevenue = tx.reduce((sum: number, t: any) => sum + Number(t.total), 0);
-      const totalTransactions = tx.length;
+      // Convert ke array dan urutkan
+      const sortedDailySales = Object.values(dailySalesMap || {})
+        .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+      // Hitung total dari data yang sudah dikelompokkan - INI YANG BENAR
+      const totalRevenue = sortedDailySales.reduce((sum: number, day: any) => sum + (Number(day.sales) || 0), 0);
+      const totalTransactions = sortedDailySales.reduce((sum: number, day: any) => sum + (Number(day.transactions) || 0), 0);
       const averagePerTransaction = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
 
-      // Calculate previous period metrics for comparison
-      const prevTx = Array.isArray(prevTransactionsData) ? prevTransactionsData : [];
-      const prevTotalRevenue = prevTx.reduce((sum: number, t: any) => sum + Number(t.total), 0);
-      const prevTotalTransactions = prevTx.length;
+      // Process previous period data with same grouping logic
+      const prevDailySalesMap = {};
+      if (Array.isArray(prevTransactionsData) && prevTransactionsData.length > 0) {
+        prevTransactionsData.forEach((item: any) => {
+          let dateKey = '';
+          try {
+            if (item.date) {
+              if (typeof item.date === 'string') {
+                dateKey = item.date.substring(0, 10);
+              } else {
+                dateKey = formatDateToWIB(new Date(item.date));
+              }
+            }
+          } catch (e) {
+            return;
+          }
+          
+          if (!dateKey) return;
+
+          if (!prevDailySalesMap[dateKey]) {
+            prevDailySalesMap[dateKey] = { date: dateKey, sales: 0, transactions: 0 };
+          }
+          
+          // PAKAI FIELD YANG BENAR untuk previous data juga
+          const prevItemSales = Number(item.sales || item.total || 0);
+          const prevItemTransactions = Number(item.transactions || 1);
+          
+          prevDailySalesMap[dateKey].sales += prevItemSales;
+          prevDailySalesMap[dateKey].transactions += prevItemTransactions;
+        });
+      }
+
+      const sortedPrevDailySales = Object.values(prevDailySalesMap || {});
+      const prevTotalRevenue = sortedPrevDailySales.reduce((sum: number, day: any) => sum + (Number(day.sales) || 0), 0);
+      const prevTotalTransactions = sortedPrevDailySales.reduce((sum: number, day: any) => sum + (Number(day.transactions) || 0), 0);
       const prevAveragePerTransaction = prevTotalTransactions > 0 ? prevTotalRevenue / prevTotalTransactions : 0;
+
+      // Simpan data transaksi mentah untuk keperluan top products dan financials
+      const rawTransactionsData = Array.isArray(transactionsData) ? transactionsData : [];
+      const rawPrevTransactionsData = Array.isArray(prevTransactionsData) ? prevTransactionsData : [];
 
       // Calculate trends
       const calculateTrend = (current: number, previous: number) => {
@@ -179,15 +261,15 @@ const ReportsInterface = () => {
       };
 
       setSalesData({
-        daily: Object.values(dailySales || {}),
+        daily: sortedDailySales, // <-- Ini harusnya data yang sudah dikelompokkan
         totalRevenue,
         totalTransactions,
         averagePerTransaction,
         trends
       });
 
-      // Process top products
-      const productSales = tx.reduce((acc: any, transaction: any) => {
+      // Process top products - menggunakan data mentah
+      const productSales = rawTransactionsData.reduce((acc: any, transaction: any) => {
         transaction.transaction_items?.forEach((item: any) => {
           if (!acc[item.product_name]) {
             acc[item.product_name] = { name: item.product_name, quantity: 0, revenue: 0 };
@@ -211,16 +293,16 @@ const ReportsInterface = () => {
       const buyPriceMap = new Map<string, number>(
         productsArr.map((p: any) => [String(p.id), Number(p.buy_price) || 0])
       );
-      // Calculate Omzet (sum of selling price x quantity sold)
-      const omzet = tx.reduce((sum: number, t: any) => {
+      // Calculate Omzet (sum of selling price x quantity sold) - menggunakan data mentah
+      const omzet = rawTransactionsData.reduce((sum: number, t: any) => {
         if (Array.isArray(t.transaction_items)) {
           return sum + t.transaction_items.reduce((s: number, i: any) => s + Number(i.total || 0), 0);
         }
         // Fallback to subtotal if items aren't present
         return sum + Number(t.subtotal || 0);
       }, 0);
-      // Calculate HPP (COGS) using product buy price x quantity
-      const cogs = tx.reduce((sum: number, t: any) => {
+      // Calculate HPP (COGS) using product buy price x quantity - menggunakan data mentah
+      const cogs = rawTransactionsData.reduce((sum: number, t: any) => {
         if (Array.isArray(t.transaction_items)) {
           return sum + t.transaction_items.reduce((s: number, i: any) => {
             const buyPrice = buyPriceMap.get(String(i.product_id)) || 0;
@@ -229,8 +311,8 @@ const ReportsInterface = () => {
         }
         return sum;
       }, 0);
-      // Calculate total discounts = subtotal - total across transactions
-      const discounts = tx.reduce((sum: number, t: any) => {
+      // Calculate total discounts = subtotal - total across transactions - menggunakan data mentah
+      const discounts = rawTransactionsData.reduce((sum: number, t: any) => {
         const subtotal = Number(t.subtotal || 0);
         const total = Number(t.total || 0);
         if (subtotal > 0 && total >= 0) return sum + Math.max(0, subtotal - total);
@@ -1035,33 +1117,7 @@ const ReportsInterface = () => {
             </div>
           </div>
 
-          {/* Chart Penjualan Harian */}
-          <Card className="slide-up" style={{animationDelay: '0.15s'}}>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <TrendingUp className="h-5 w-5" />
-                Grafik Penjualan Harian
-              </CardTitle>
-              <CardDescription>Visualisasi penjualan per hari pada periode terpilih</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ChartContainer
-                config={{
-                  sales: { label: 'Penjualan', color: 'hsl(var(--primary))' },
-                }}
-                className="h-[320px] w-full"
-              >
-                <BarChart data={salesData.daily || []}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                  <YAxis tickFormatter={(v: number) => new Intl.NumberFormat('id-ID', { notation: 'compact' }).format(v)} />
-                  <ChartTooltip content={<ChartTooltipContent formatter={(value: number) => `Rp ${Number(value).toLocaleString('id-ID')}`} />} />
-                  <ChartLegend content={<ChartLegendContent />} />
-                  <Bar dataKey="sales" fill="var(--color-sales)" radius={4} />
-                </BarChart>
-              </ChartContainer>
-            </CardContent>
-          </Card>
+
 
           {/* Sales by Period */}
           <div className="grid grid-cols-1 gap-6">
@@ -1071,16 +1127,16 @@ const ReportsInterface = () => {
                   <Calendar className="h-5 w-5 text-primary" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-foreground">Penjualan Harian</h3>
-                  <p className="text-sm text-muted-foreground">3 hari terakhir</p>
-                </div>
+                <h3 className="text-lg font-semibold text-foreground">Penjualan Harian</h3>
+                <p className="text-sm text-muted-foreground">30 hari terakhir</p>
+              </div>
               </div>
               <Table>
                 <TableHeader>
                   <TableRow className="border-border/50">
                     <TableHead className="font-semibold">Tanggal</TableHead>
-                    <TableHead className="font-semibold">Transaksi</TableHead>
-                    <TableHead className="font-semibold">Total</TableHead>
+                    <TableHead className="font-semibold">Jumlah Transaksi</TableHead>
+                    <TableHead className="font-semibold">Total Penjualan</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

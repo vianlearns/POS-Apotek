@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   DollarSign,
   Receipt,
+  Clock,
 } from 'lucide-react';
 import logo from '@/assets/logo.png';
 
@@ -55,6 +56,7 @@ const Dashboard = () => {
   const { user, userProfile, signOut } = useAuth();
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [initialTransactionDateFilter, setInitialTransactionDateFilter] = useState<string | undefined>(undefined);
+  const [currentTime, setCurrentTime] = useState(new Date());
 
   const fetchJSON = async (url: string, options?: RequestInit) => {
     const res = await fetch(url, options);
@@ -173,6 +175,14 @@ const Dashboard = () => {
     };
     window.addEventListener('navigateToTransactions', handler as EventListener);
     return () => window.removeEventListener('navigateToTransactions', handler as EventListener);
+  }, []);
+
+  // Real-time clock update
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
   }, []);
 
   const navigationItems = [
@@ -380,6 +390,24 @@ const Dashboard = () => {
     }
   };
 
+  // Format time for display
+  const formatTime = (date: Date) => {
+    return date.toLocaleTimeString('id-ID', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+  };
+
+  const formatDate = (date: Date) => {
+    return date.toLocaleDateString('id-ID', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric'
+    });
+  };
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -399,14 +427,29 @@ const Dashboard = () => {
             </div>
           </div>
 
-          <Button
-            variant="outline"
-            onClick={signOut}
-            className="hover:bg-destructive/10 hover:border-destructive hover:text-destructive transition-colors"
-          >
-            <LogOut className="h-4 w-4 mr-2" />
-            Keluar
-          </Button>
+          <div className="flex items-center gap-4">
+            {/* Real-time Clock */}
+            <div className="flex items-center gap-3 px-4 py-2 rounded-lg bg-primary/5 border border-primary/10">
+              <Clock className="h-5 w-5 text-primary" />
+              <div className="text-right">
+                <div className="text-lg font-bold text-foreground tabular-nums">
+                  {formatTime(currentTime)}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {formatDate(currentTime)}
+                </div>
+              </div>
+            </div>
+
+            <Button
+              variant="outline"
+              onClick={signOut}
+              className="hover:bg-destructive/10 hover:border-destructive hover:text-destructive transition-colors"
+            >
+              <LogOut className="h-4 w-4 mr-2" />
+              Keluar
+            </Button>
+          </div>
         </div>
       </header>
 
