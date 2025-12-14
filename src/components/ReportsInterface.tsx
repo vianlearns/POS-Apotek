@@ -64,7 +64,36 @@ const ReportsInterface = () => {
   
   const [dateFrom, setDateFrom] = useState(formatDateToWIB(thirtyDaysAgo));
   const [dateTo, setDateTo] = useState(formatDateToWIB(currentDate));
+  
+  // State untuk filter bulan dan tahun
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  
+  // State untuk mode filter (bulan/tahun atau manual)
+  const [filterMode, setFilterMode] = useState<'month' | 'manual'>('month');
+  
   const [loading, setLoading] = useState(true);
+
+  // Nama bulan dalam bahasa Indonesia
+  const monthNames = [
+    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+  ];
+
+  // Fungsi untuk update tanggal berdasarkan bulan dan tahun yang dipilih
+  const updateDatesFromMonthYear = (month: number, year: number) => {
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    setDateFrom(formatDateToWIB(firstDay));
+    setDateTo(formatDateToWIB(lastDay));
+  };
+
+  // Update tanggal saat bulan atau tahun berubah (hanya untuk mode bulan)
+  useEffect(() => {
+    if (filterMode === 'month') {
+      updateDatesFromMonthYear(selectedMonth, selectedYear);
+    }
+  }, [selectedMonth, selectedYear, filterMode]);
   const [salesData, setSalesData] = useState<any>({
     daily: [],
     monthly: [],
@@ -1002,33 +1031,111 @@ const ReportsInterface = () => {
 
       {/* Date Range Filter */}
       <div className="medical-card p-6 slide-up" style={{animationDelay: '0.1s'}}>
-        <div className="flex items-center space-x-3 mb-4">
-          <div className="p-2 rounded-lg bg-primary/10">
-            <Calendar className="h-5 w-5 text-primary" />
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center space-x-3">
+            <div className="p-2 rounded-lg bg-primary/10">
+              <Calendar className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-foreground">Filter Periode</h3>
+              <p className="text-sm text-muted-foreground">
+                {filterMode === 'month' 
+                  ? `${monthNames[selectedMonth]} ${selectedYear}`
+                  : `${dateFrom} sampai ${dateTo}`
+                }
+              </p>
+            </div>
           </div>
-          <h3 className="text-lg font-semibold text-foreground">Filter Periode</h3>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                const now = new Date();
+                setSelectedMonth(now.getMonth());
+                setSelectedYear(now.getFullYear());
+                if (filterMode === 'manual') {
+                  setFilterMode('month');
+                }
+              }}
+              className="h-8 px-3"
+              title="Reset ke bulan ini"
+            >
+              Bulan Ini
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setFilterMode(filterMode === 'month' ? 'manual' : 'month')}
+              className="h-8"
+            >
+              {filterMode === 'month' ? 'Tanggal Manual' : 'Pilih Bulan'}
+            </Button>
+          </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-          <div className="space-y-2">
-            <Label htmlFor="dateFrom" className="font-medium">Dari Tanggal</Label>
-            <Input
-              id="dateFrom"
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="h-12 bg-background/50 border-border/60"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="dateTo" className="font-medium">Sampai Tanggal</Label>
-            <Input
-              id="dateTo"
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="h-12 bg-background/50 border-border/60"
-            />
-          </div>
+          {filterMode === 'month' ? (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="monthSelect" className="font-medium">Bulan</Label>
+                <Select value={selectedMonth.toString()} onValueChange={(value) => setSelectedMonth(parseInt(value))}>
+                  <SelectTrigger id="monthSelect" className="h-12 bg-background/50 border-border/60">
+                    <SelectValue placeholder="Pilih Bulan" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {monthNames.map((month, index) => (
+                      <SelectItem key={index} value={index.toString()}>
+                        {month}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="yearSelect" className="font-medium">Tahun</Label>
+                <Select value={selectedYear.toString()} onValueChange={(value) => setSelectedYear(parseInt(value))}>
+                  <SelectTrigger id="yearSelect" className="h-12 bg-background/50 border-border/60">
+                    <SelectValue placeholder="Pilih Tahun" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 10 }, (_, i) => {
+                      const year = new Date().getFullYear() - 5 + i;
+                      return (
+                        <SelectItem key={year} value={year.toString()}>
+                          {year}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="dateFrom" className="font-medium">Dari Tanggal</Label>
+                <Input
+                  id="dateFrom"
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="h-12 bg-background/50 border-border/60"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="dateTo" className="font-medium">Sampai Tanggal</Label>
+                <Input
+                  id="dateTo"
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="h-12 bg-background/50 border-border/60"
+                />
+              </div>
+            </>
+          )}
           <Button 
             onClick={fetchReportsData}
             className="h-12 bg-primary hover:bg-primary-hover"
