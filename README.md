@@ -14,6 +14,46 @@ Hanum Farma adalah aplikasi desktop untuk manajemen apotek yang dibangun menggun
 - **Manajemen Resep**: Pencatatan dan pengelolaan resep dokter
 - **Laporan**: Pembuatan laporan penjualan dan keuangan
 
+## Screenshot Aplikasi
+
+Berikut adalah tampilan antarmuka Hanum Farma:
+
+### Dashboard
+*Tampilan utama dashboard dengan ringkasan data penjualan dan statistik*
+![Dashboard](resource/dashboard.png)
+
+### Manajemen Produk
+*Halaman pengelolaan produk obat dan item kesehatan*
+![Produk](resource/produk.png)
+
+### Penjualan
+*Antarmuka kasir untuk transaksi penjualan*
+![Penjualan](resource/penjualan.png)
+
+### Transaksi
+*Daftar transaksi penjualan yang telah dilakukan*
+![Transaksi](resource/transaksi.png)
+
+### Manajemen Resep
+*Pencatatan dan pengelolaan resep dari dokter*
+![Resep](resource/resep.png)
+
+### Manajemen Supplier
+*Pengelolaan data supplier dan pemasok produk*
+![Supplier](resource/supplier.png)
+
+### Laporan
+*Sistem pelaporan penjualan dan keuangan*
+![Laporan](resource/laporan.png)
+
+### Inkaso
+*Pencatatan pembayaran dan inkaso*
+![Inkaso](resource/inkaso.png)
+
+### Manajemen User
+*Pengelolaan akun pengguna dan hak akses*
+![Manajemen User](resource/manajemen_user.png)
+
 ## Kredensial Default
 
 - **Username**: `admin`
