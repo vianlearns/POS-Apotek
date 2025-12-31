@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE } from '../config/api';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Package,
   ShoppingCart,
@@ -67,6 +66,23 @@ const Dashboard = () => {
     return typeof json?.data !== 'undefined' ? json.data : json;
   };
 
+  // Helper untuk mendapatkan format tanggal YYYY-MM-DD dalam zona waktu WIB
+  const formatDateToWIBString = (date: Date) => {
+    return new Intl.DateTimeFormat('en-CA', { 
+      timeZone: 'Asia/Jakarta',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(date);
+  };
+
+  // Helper untuk konversi string tanggal UTC ke format WIB YYYY-MM-DD (seperti di TransactionManagement.tsx)
+  const getWIBDateString = (dateString: string) => {
+    const normalized = /Z|\+\d{2}:?\d{2}$/.test(dateString) ? dateString : `${dateString}Z`;
+    const date = new Date(normalized);
+    return formatDateToWIBString(date);
+  };
+
   
   const [stats, setStats] = useState<DashboardStats>({
     todaySales: 0,
@@ -76,47 +92,52 @@ const Dashboard = () => {
     salesTrend: { percentage: 0, isPositive: true },
   });
 
-  // State untuk tanggal di komponen Inkaso
+  // State untuk tanggal di komponen Inkaso (WIB)
   const [inkasoDateFrom, setInkasoDateFrom] = useState(() => {
     const firstDayOfMonth = new Date();
     firstDayOfMonth.setDate(1);
-    return firstDayOfMonth.toISOString().split('T')[0];
+    return formatDateToWIBString(firstDayOfMonth);
   });
   const [inkasoDateTo, setInkasoDateTo] = useState(() => {
     const lastDayOfMonth = new Date();
     lastDayOfMonth.setMonth(lastDayOfMonth.getMonth() + 1, 0);
-    return lastDayOfMonth.toISOString().split('T')[0];
+    return formatDateToWIBString(lastDayOfMonth);
   });
 
   useEffect(() => {
     const fetchDashboardStats = async () => {
       try {
-        // Helper dates (gunakan batas bawah & atas hari untuk akurasi)
+        // Ambil transaksi untuk beberapa hari terakhir untuk menghitung statistik WIB
         const todayStart = new Date();
         todayStart.setHours(0, 0, 0, 0);
-        const todayISO = todayStart.toISOString().split('T')[0];
+        
+        // Ambil 2 hari terakhir untuk memastikan kita tidak ketinggalan transaksi akibat timezone
+        const twoDaysAgo = new Date(todayStart);
+        twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+        
+        const twoDaysAgoWIB = formatDateToWIBString(twoDaysAgo);
+        const tomorrowWIB = formatDateToWIBString(new Date(todayStart.getTime() + 24 * 60 * 60 * 1000));
 
-        const tomorrowStart = new Date(todayStart);
-        tomorrowStart.setDate(tomorrowStart.getDate() + 1);
-        const tomorrowISO = tomorrowStart.toISOString().split('T')[0];
+        // === Ambil semua transaksi completed dalam rentang 2 hari terakhir ===
+        const allSalesData: Array<{ total: number; date: string }> = await fetchJSON(
+          `${API_BASE}/transactions?from=${twoDaysAgoWIB}&to=${tomorrowWIB}&status=completed`
+        );
+        const allSalesArr = Array.isArray(allSalesData) ? allSalesData : [];
 
+        // Hitung tanggal WIB hari ini dan kemarin
+        const todayWIB = formatDateToWIBString(todayStart);
         const yesterdayStart = new Date(todayStart);
         yesterdayStart.setDate(yesterdayStart.getDate() - 1);
-        const yesterdayISO = yesterdayStart.toISOString().split('T')[0];
+        const yesterdayWIB = formatDateToWIBString(yesterdayStart);
 
-        // === Sales Today (completed only) ===
-        const todaySalesData: Array<{ total: number }> = await fetchJSON(
-          `${API_BASE}/transactions?from=${todayISO}&to=${tomorrowISO}&status=completed`
-        );
-        const todayArr = Array.isArray(todaySalesData) ? todaySalesData : [];
-        const todaySales = todayArr.reduce((sum, t) => sum + Number(t.total || 0), 0);
+        // Filter transaksi berdasarkan tanggal WIB
+        const todaySales = allSalesArr
+          .filter(t => getWIBDateString(t.date) === todayWIB)
+          .reduce((sum, t) => sum + Number(t.total || 0), 0);
 
-        // === Sales Yesterday (completed only) ===
-        const yesterdaySalesData: Array<{ total: number }> = await fetchJSON(
-          `${API_BASE}/transactions?from=${yesterdayISO}&to=${todayISO}&status=completed`
-        );
-        const yesterdayArr = Array.isArray(yesterdaySalesData) ? yesterdaySalesData : [];
-        const yesterdaySales = yesterdayArr.reduce((sum, t) => sum + Number(t.total || 0), 0);
+        const yesterdaySales = allSalesArr
+          .filter(t => getWIBDateString(t.date) === yesterdayWIB)
+          .reduce((sum, t) => sum + Number(t.total || 0), 0);
 
         // === Trend calculation (today vs yesterday) ===
         const calculateTrend = (current: number, previous: number) => {
@@ -140,8 +161,9 @@ const Dashboard = () => {
         // === Expiring products (within 30 days) ===
         const thirtyDaysFromNow = new Date();
         thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+        const thirtyDaysFromNowWIB = formatDateToWIBString(thirtyDaysFromNow);
         const expiringData = productsArr.filter(
-          (p) => p.expiry_date && p.expiry_date <= thirtyDaysFromNow.toISOString().split('T')[0]
+          (p) => p.expiry_date && p.expiry_date <= thirtyDaysFromNowWIB
         );
 
         // === Pending prescriptions ===

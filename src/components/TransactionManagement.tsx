@@ -5,22 +5,22 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
 } from '@/components/ui/table';
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogDescription, 
-  DialogFooter, 
-  DialogHeader, 
-  DialogTitle, 
-  DialogTrigger 
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -62,7 +62,7 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
   const [products, setProducts] = useState<any[]>([]);
   const [productSearch, setProductSearch] = useState('');
   const [showProductSelector, setShowProductSelector] = useState(false);
-  const [stockChanges, setStockChanges] = useState<{[key: string]: {oldQty: number, newQty: number, productName: string}}>({});
+  const [stockChanges, setStockChanges] = useState<{ [key: string]: { oldQty: number, newQty: number, productName: string } }>({});
   const [showStockWarning, setShowStockWarning] = useState(false);
 
   // Format tanggal/jam ke WIB (Asia/Jakarta)
@@ -74,6 +74,22 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
       timeStyle: 'short',
       timeZone: 'Asia/Jakarta'
     }).format(d);
+  };
+  
+  // Helper untuk mendapatkan format tanggal YYYY-MM-DD dalam zona waktu WIB
+  const getWIBDateString = (dateString: string) => {
+    const normalized = /Z|\+\d{2}:?\d{2}$/.test(dateString) ? dateString : `${dateString}Z`;
+    const date = new Date(normalized);
+    return formatDateToWIBString(date);
+  };
+
+  const formatDateToWIBString = (date: Date) => {
+    return new Intl.DateTimeFormat('en-CA', { 
+      timeZone: 'Asia/Jakarta',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(date);
   };
 
   const { toast } = useToast();
@@ -89,12 +105,27 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
   const fetchTransactions = async () => {
     try {
       setLoading(true);
-      const data = await fetchJSON(`${API_BASE}/transactions`);
+      
+      // Calculate date range (last 30 days)
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(endDate.getDate() - 30);
+      
+      const fromParam = formatDateToWIBString(startDate);
+      const toParam = formatDateToWIBString(endDate);
+
+      const data = await fetchJSON(`${API_BASE}/transactions?from=${fromParam}&to=${toParam}`);
       if (data.ok) {
         // Map API response to frontend format
         const mappedTransactions = (data.data || []).map((transaction: any) => ({
           ...transaction,
-          items: transaction.transaction_items || [],
+          items: (transaction.transaction_items || []).map((item: any) => ({
+            productId: item.product_id,
+            productName: item.product_name,
+            quantity: item.quantity,
+            price: item.price,
+            total: item.total
+          })),
           cashierId: transaction.cashier_id,
           paymentMethod: transaction.payment_method,
           prescriptionId: transaction.prescription_id,
@@ -135,12 +166,12 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
   };
 
   const addProductToTransaction = (product: any) => {
-    const existingItemIndex = editForm.items.findIndex(item => item.product_id === product.id);
-    
+    const existingItemIndex = editForm.items.findIndex(item => item.productId === product.id);
+
     if (existingItemIndex >= 0) {
       // If product already exists, check if we can increase quantity
       const currentQuantity = editForm.items[existingItemIndex].quantity;
-      
+
       // Check if adding 1 more would exceed available stock
       if (currentQuantity >= product.stock) {
         toast({
@@ -150,11 +181,11 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
         });
         return;
       }
-      
+
       const newItems = [...editForm.items];
       newItems[existingItemIndex].quantity += 1;
       newItems[existingItemIndex].total = newItems[existingItemIndex].quantity * newItems[existingItemIndex].price;
-      
+
       // Track stock changes
       const productId = product.id;
       const productName = product.name;
@@ -167,8 +198,8 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
         }
       }));
       setShowStockWarning(true);
-      
-      setEditForm({...editForm, items: newItems});
+
+      setEditForm({ ...editForm, items: newItems });
     } else {
       // Add new product - check if stock is available
       if (product.stock < 1) {
@@ -179,16 +210,15 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
         });
         return;
       }
-      
+
       const newItem = {
-        product_id: product.id,
-        product_name: product.name,
+        productId: product.id,
         productName: product.name,
         quantity: 1,
         price: product.price,
         total: product.price
       };
-      
+
       // Track stock changes for new item
       setStockChanges(prev => ({
         ...prev,
@@ -199,10 +229,10 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
         }
       }));
       setShowStockWarning(true);
-      
-      setEditForm({...editForm, items: [...editForm.items, newItem]});
+
+      setEditForm({ ...editForm, items: [...editForm.items, newItem] });
     }
-    
+
     setProductSearch('');
     setShowProductSelector(false);
   };
@@ -216,16 +246,15 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
     const matchesSearch = transaction.id.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || transaction.status === statusFilter;
     const matchesPayment = paymentFilter === 'all' || transaction.paymentMethod === paymentFilter;
-    const matchesPrescription = prescriptionFilter === 'all' || 
-                               (prescriptionFilter === 'with' && transaction.prescriptionId) ||
-                               (prescriptionFilter === 'without' && !transaction.prescriptionId);
-    
+    const matchesPrescription = prescriptionFilter === 'all' ||
+      (prescriptionFilter === 'with' && transaction.prescriptionId) ||
+      (prescriptionFilter === 'without' && !transaction.prescriptionId);
+
     if (dateFilter) {
-      const transactionDate = new Date(transaction.date).toDateString();
-      const filterDate = new Date(dateFilter).toDateString();
-      return matchesSearch && matchesStatus && matchesPayment && matchesPrescription && transactionDate === filterDate;
+      const transactionDate = getWIBDateString(transaction.date);
+      return matchesSearch && matchesStatus && matchesPayment && matchesPrescription && transactionDate === dateFilter;
     }
-    
+
     return matchesSearch && matchesStatus && matchesPayment && matchesPrescription;
   });
 
@@ -258,10 +287,10 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
 
     try {
       setLoading(true);
-      
+
       // Calculate new totals
       const subtotal = editForm.items.reduce((sum, item) => sum + (item.total || 0), 0);
-      const discountAmount = editForm.discountType === 'percentage' 
+      const discountAmount = editForm.discountType === 'percentage'
         ? (subtotal * editForm.discount) / 100
         : editForm.discount;
       const newTotal = Math.max(0, subtotal - discountAmount);
@@ -273,7 +302,13 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
           payment_method: editForm.paymentMethod,
           discount: editForm.discount,
           discount_type: editForm.discountType,
-          items: editForm.items,
+          items: editForm.items.map(item => ({
+             product_id: item.productId,
+             product_name: item.productName,
+             quantity: item.quantity,
+             price: item.price,
+             total: item.total
+          })),
           subtotal: subtotal,
           total: newTotal
         })
@@ -451,10 +486,10 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                       <TableCell>
                         <Badge variant={
                           transaction.status === 'completed' ? 'default' :
-                          transaction.status === 'pending' ? 'secondary' : 'destructive'
+                            transaction.status === 'pending' ? 'secondary' : 'destructive'
                         }>
                           {transaction.status === 'completed' ? 'Selesai' :
-                           transaction.status === 'pending' ? 'Pending' : 'Dibatalkan'}
+                            transaction.status === 'pending' ? 'Pending' : 'Dibatalkan'}
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -516,7 +551,7 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
               Detail transaksi dalam format struk
             </DialogDescription>
           </DialogHeader>
-          
+
           {selectedTransaction && (
             <div className="space-y-6" id="receipt-print-area">
               <div className="text-center p-4 border-b border-border/50">
@@ -525,7 +560,7 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                 <p className="text-sm text-muted-foreground">Alamat: Jl. Nenggolo, RT 04, RW 10, Curugsewu, Patean, Kendal, Jawa Tengah, Indonesia</p>
                 <p className="text-sm text-muted-foreground">Tel: (62) 85777330094</p>
               </div>
-              
+
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">No:</span>
@@ -536,7 +571,7 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                   <span>{formatWIB(selectedTransaction.date)}</span>
                 </div>
               </div>
-              
+
               <div className="border-t border-b border-border/50 py-4">
                 <Table>
                   <TableBody>
@@ -544,7 +579,7 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                       <TableRow key={index} className="border-none">
                         <TableCell className="py-2 px-0">
                           <div>
-                            <div className="font-medium">{item.product_name || item.productName}</div>
+                            <div className="font-medium">{item.productName}</div>
                             <div className="text-xs text-muted-foreground">
                               {item.quantity} x Rp {(item.price || 0).toLocaleString('id-ID')}
                             </div>
@@ -558,7 +593,7 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                   </TableBody>
                 </Table>
               </div>
-              
+
               <div className="space-y-2">
                 {selectedTransaction.discount > 0 && (
                   <>
@@ -571,7 +606,7 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                         Diskon ({selectedTransaction.discountType === 'percentage' ? `${selectedTransaction.discount}%` : `Rp ${selectedTransaction.discount.toLocaleString('id-ID')}`})
                       </span>
                       <span>
-                        - Rp {(selectedTransaction.discountType === 'percentage' 
+                        - Rp {(selectedTransaction.discountType === 'percentage'
                           ? (selectedTransaction.subtotal * selectedTransaction.discount) / 100
                           : selectedTransaction.discount
                         ).toLocaleString('id-ID')}
@@ -588,14 +623,14 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                   <span>Rp {selectedTransaction.total.toLocaleString('id-ID')}</span>
                 </div>
               </div>
-              
+
               <div className="text-center text-sm text-muted-foreground border-t border-border/50 pt-4">
                 <p className="font-medium">Terima kasih atas kunjungan Anda</p>
                 <p>Semoga lekas sembuh</p>
               </div>
             </div>
           )}
-          
+
           <DialogFooter className="print:hidden">
             <Button variant="outline" onClick={() => setIsViewDialogOpen(false)}>
               Tutup
@@ -629,13 +664,13 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                   <p><strong>Kasir:</strong> {selectedTransaction.cashierId}</p>
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-2 gap-6">
                 {/* Left Column - Payment & Discount */}
                 <div className="space-y-4">
                   <div>
                     <Label htmlFor="paymentMethod">Metode Pembayaran</Label>
-                    <Select value={editForm.paymentMethod} onValueChange={(value) => setEditForm({...editForm, paymentMethod: value})}>
+                    <Select value={editForm.paymentMethod} onValueChange={(value) => setEditForm({ ...editForm, paymentMethod: value })}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
@@ -653,10 +688,10 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                         type="number"
                         placeholder="0"
                         value={editForm.discount}
-                        onChange={(e) => setEditForm({...editForm, discount: Number(e.target.value)})}
+                        onChange={(e) => setEditForm({ ...editForm, discount: Number(e.target.value) })}
                         className="flex-1"
                       />
-                      <Select value={editForm.discountType} onValueChange={(value: 'percentage' | 'fixed') => setEditForm({...editForm, discountType: value})}>
+                      <Select value={editForm.discountType} onValueChange={(value: 'percentage' | 'fixed') => setEditForm({ ...editForm, discountType: value })}>
                         <SelectTrigger className="w-32">
                           <SelectValue />
                         </SelectTrigger>
@@ -668,14 +703,14 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                     </div>
                     {editForm.discount > 0 && (
                       <p className="text-sm text-muted-foreground">
-                        Diskon: Rp {(editForm.discountType === 'percentage' 
+                        Diskon: Rp {(editForm.discountType === 'percentage'
                           ? (editForm.items.reduce((sum, item) => sum + (item.total || 0), 0) * editForm.discount) / 100
                           : editForm.discount
                         ).toLocaleString('id-ID')}
                       </p>
                     )}
                   </div>
-                  
+
 
                 </div>
 
@@ -693,7 +728,7 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                       Tambah Produk
                     </Button>
                   </div>
-                  
+
                   {/* Product Selector */}
                   {showProductSelector && (
                     <div className="border rounded-lg p-3 bg-muted/50">
@@ -706,7 +741,7 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                         />
                         <div className="max-h-40 overflow-y-auto space-y-1">
                           {products
-                            .filter(product => 
+                            .filter(product =>
                               product.name.toLowerCase().includes(productSearch.toLowerCase()) &&
                               product.stock > 0
                             )
@@ -726,19 +761,19 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                                 <Plus className="h-4 w-4 text-muted-foreground" />
                               </div>
                             ))}
-                          {productSearch && products.filter(product => 
+                          {productSearch && products.filter(product =>
                             product.name.toLowerCase().includes(productSearch.toLowerCase()) &&
                             product.stock > 0
                           ).length === 0 && (
-                            <p className="text-sm text-muted-foreground text-center py-2">
-                              Tidak ada produk ditemukan
-                            </p>
-                          )}
+                              <p className="text-sm text-muted-foreground text-center py-2">
+                                Tidak ada produk ditemukan
+                              </p>
+                            )}
                         </div>
                       </div>
                     </div>
                   )}
-                  
+
                   {showStockWarning && Object.keys(stockChanges).length > 0 && (
                     <Alert className="mb-4">
                       <Info className="h-4 w-4" />
@@ -749,7 +784,7 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                             const stockDiff = change.newQty - change.oldQty;
                             return (
                               <div key={productId} className="text-sm">
-                                <span className="font-medium">{change.productName}</span>: 
+                                <span className="font-medium">{change.productName}</span>:
                                 {stockDiff > 0 ? (
                                   <span className="text-red-600 ml-1">
                                     Stok akan berkurang {Math.abs(stockDiff)} unit
@@ -766,12 +801,12 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                       </AlertDescription>
                     </Alert>
                   )}
-                  
+
                   <div className="border rounded-lg p-4 max-h-80 overflow-y-auto">
                     {editForm.items.map((item, index) => (
                       <div key={index} className="flex items-center gap-2 mb-3 p-2 border rounded">
                         <div className="flex-1">
-                          <p className="font-medium text-sm">{item.product_name || item.productName}</p>
+                          <p className="font-medium text-sm">{item.productName}</p>
                           <p className="text-xs text-muted-foreground">Rp {(item.price || 0).toLocaleString('id-ID')}</p>
                         </div>
                         <div className="flex items-center gap-1">
@@ -784,10 +819,10 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                                 const oldQty = newItems[index].quantity;
                                 newItems[index].quantity -= 1;
                                 newItems[index].total = newItems[index].quantity * (newItems[index].price || 0);
-                                
+
                                 // Track stock changes
-                                const productId = newItems[index].product_id;
-                                const productName = newItems[index].product_name || newItems[index].productName;
+                                const productId = newItems[index].productId;
+                                const productName = newItems[index].productName;
                                 setStockChanges(prev => ({
                                   ...prev,
                                   [productId]: {
@@ -797,8 +832,8 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                                   }
                                 }));
                                 setShowStockWarning(true);
-                                
-                                setEditForm({...editForm, items: newItems});
+
+                                setEditForm({ ...editForm, items: newItems });
                               }
                             }}
                           >
@@ -811,8 +846,8 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                             onClick={() => {
                               const newItems = [...editForm.items];
                               const currentItem = newItems[index];
-                              const productId = currentItem.product_id;
-                              
+                              const productId = currentItem.productId;
+
                               // Find the product to check stock
                               const product = products.find(p => p.id === productId);
                               if (!product) {
@@ -823,7 +858,7 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                                 });
                                 return;
                               }
-                              
+
                               // Check if increasing quantity would exceed available stock
                               if (currentItem.quantity >= product.stock) {
                                 toast({
@@ -833,13 +868,13 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                                 });
                                 return;
                               }
-                              
+
                               const oldQty = newItems[index].quantity;
                               newItems[index].quantity += 1;
                               newItems[index].total = newItems[index].quantity * (newItems[index].price || 0);
-                              
+
                               // Track stock changes
-                              const productName = newItems[index].product_name || newItems[index].productName;
+                              const productName = newItems[index].productName;
                               setStockChanges(prev => ({
                                 ...prev,
                                 [productId]: {
@@ -849,8 +884,8 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                                 }
                               }));
                               setShowStockWarning(true);
-                              
-                              setEditForm({...editForm, items: newItems});
+
+                              setEditForm({ ...editForm, items: newItems });
                             }}
                           >
                             <Plus className="h-3 w-3" />
@@ -860,7 +895,7 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                             size="sm"
                             onClick={() => {
                               const newItems = editForm.items.filter((_, i) => i !== index);
-                              setEditForm({...editForm, items: newItems});
+                              setEditForm({ ...editForm, items: newItems });
                             }}
                           >
                             <Trash2 className="h-3 w-3" />
@@ -871,12 +906,12 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                         </div>
                       </div>
                     ))}
-                    
+
                     {editForm.items.length === 0 && (
                       <p className="text-center text-muted-foreground py-4">Tidak ada item</p>
                     )}
                   </div>
-                  
+
                   {/* Summary */}
                   <div className="border-t pt-3 space-y-2">
                     <div className="flex justify-between text-sm">
@@ -886,7 +921,7 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                     {editForm.discount > 0 && (
                       <div className="flex justify-between text-sm text-secondary">
                         <span>Diskon:</span>
-                        <span>- Rp {(editForm.discountType === 'percentage' 
+                        <span>- Rp {(editForm.discountType === 'percentage'
                           ? (editForm.items.reduce((sum, item) => sum + (item.total || 0), 0) * editForm.discount) / 100
                           : editForm.discount
                         ).toLocaleString('id-ID')}</span>
@@ -894,7 +929,7 @@ const TransactionManagement = ({ initialDateFilter }: TransactionManagementProps
                     )}
                     <div className="flex justify-between font-bold">
                       <span>Total Baru:</span>
-                      <span>Rp {Math.max(0, editForm.items.reduce((sum, item) => sum + (item.total || 0), 0) - (editForm.discountType === 'percentage' 
+                      <span>Rp {Math.max(0, editForm.items.reduce((sum, item) => sum + (item.total || 0), 0) - (editForm.discountType === 'percentage'
                         ? (editForm.items.reduce((sum, item) => sum + (item.total || 0), 0) * editForm.discount) / 100
                         : editForm.discount
                       )).toLocaleString('id-ID')}</span>
