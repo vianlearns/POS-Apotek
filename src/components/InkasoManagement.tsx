@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DollarSign, Receipt, Edit, Trash2 } from 'lucide-react';
+import { DollarSign, Receipt, Edit, Trash2, Check, RotateCcw } from 'lucide-react';
 import { CollectionRecord, PaymentRecord } from '../types';
 import { useToast } from '@/hooks/use-toast';
 
@@ -224,6 +224,76 @@ const InkasoManagement: React.FC<InkasoManagementProps> = ({ dateFrom, dateTo })
     }
   };
 
+  const handleTransferToPayment = async (collection: CollectionRecord) => {
+    if (!confirm(`Apakah Anda yakin ingin memindahkan inkaso Rp ${Number(collection.amount).toLocaleString('id-ID')} tanggal ${new Date(collection.date).toLocaleDateString('id-ID')} ke pembayaran?`)) return;
+    
+    try {
+      // Buat data pembayaran baru dengan data yang sama dari inkaso
+      await fetchJSON(`${API_BASE}/payments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: collection.amount,
+          date: collection.date,
+        }),
+      });
+      
+      // Hapus data dari inkaso
+      await fetchJSON(`${API_BASE}/collections/${collection.id}`, { method: 'DELETE' });
+      
+      toast({
+        title: 'Sukses',
+        description: 'Data inkaso berhasil dipindahkan ke pembayaran',
+      });
+      
+      // Refresh data
+      fetchCollections();
+      fetchPayments();
+    } catch (error) {
+      console.error('Error transferring to payment:', error);
+      toast({
+        title: 'Error',
+        description: 'Gagal memindahkan data ke pembayaran',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleReverseToCollection = async (payment: PaymentRecord) => {
+    if (!confirm(`Apakah Anda yakin ingin memindahkan pembayaran Rp ${Number(payment.amount).toLocaleString('id-ID')} tanggal ${new Date(payment.date).toLocaleDateString('id-ID')} kembali ke inkaso?`)) return;
+    
+    try {
+      // Buat data inkaso baru dengan data yang sama dari pembayaran
+      await fetchJSON(`${API_BASE}/collections`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: payment.amount,
+          date: payment.date,
+        }),
+      });
+      
+      // Hapus data dari pembayaran
+      await fetchJSON(`${API_BASE}/payments/${payment.id}`, { method: 'DELETE' });
+      
+      toast({
+        title: 'Sukses',
+        description: 'Data pembayaran berhasil dipindahkan kembali ke inkaso',
+      });
+      
+      // Refresh data
+      fetchCollections();
+      fetchPayments();
+    } catch (error) {
+      console.error('Error reversing to collection:', error);
+      toast({
+        title: 'Error',
+        description: 'Gagal memindahkan data kembali ke inkaso',
+        variant: 'destructive',
+      });
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Ringkasan Inkaso/Bayar */}
@@ -337,6 +407,9 @@ const InkasoManagement: React.FC<InkasoManagementProps> = ({ dateFrom, dateTo })
                     <TableCell>Rp {Number(c.amount).toLocaleString('id-ID')}</TableCell>
                     <TableCell>
                       <div className="flex space-x-2">
+                        <Button size="sm" variant="outline" onClick={() => handleTransferToPayment(c)} title="Tandai sudah bayar">
+                          <Check className="h-4 w-4" />
+                        </Button>
                         <Button size="sm" variant="outline" onClick={() => setEditingCollection(c)}>
                           <Edit className="h-4 w-4" />
                         </Button>
@@ -375,6 +448,9 @@ const InkasoManagement: React.FC<InkasoManagementProps> = ({ dateFrom, dateTo })
                     <TableCell>Rp {Number(p.amount).toLocaleString('id-ID')}</TableCell>
                     <TableCell>
                       <div className="flex space-x-2">
+                        <Button size="sm" variant="outline" onClick={() => handleReverseToCollection(p)} title="Kembalikan ke inkaso">
+                          <RotateCcw className="h-4 w-4" />
+                        </Button>
                         <Button size="sm" variant="outline" onClick={() => setEditingPayment(p)}>
                           <Edit className="h-4 w-4" />
                         </Button>
