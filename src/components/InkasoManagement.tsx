@@ -2,19 +2,25 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { API_BASE } from '../config/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
 } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DollarSign, Receipt, Edit, Trash2, Check, RotateCcw } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { DollarSign, Receipt, Edit, Trash2, Check, RotateCcw, History, Calendar } from 'lucide-react';
 import { CollectionRecord, PaymentRecord } from '../types';
 import { useToast } from '@/hooks/use-toast';
+
+const monthNames = [
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+];
 
 const fetchJSON = async (url: string, options?: RequestInit) => {
   const res = await fetch(url, options);
@@ -51,7 +57,14 @@ const InkasoManagement: React.FC<InkasoManagementProps> = ({ dateFrom, dateTo })
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [editingCollection, setEditingCollection] = useState<CollectionRecord | null>(null);
   const [editingPayment, setEditingPayment] = useState<PaymentRecord | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyMonth, setHistoryMonth] = useState(new Date().getMonth());
+  const [historyYear, setHistoryYear] = useState(new Date().getFullYear());
   const { toast } = useToast();
+
+  // Get current month and year for filtering
+  const currentMonth = new Date().getMonth();
+  const currentYear = new Date().getFullYear();
 
   useEffect(() => {
     fetchCollections();
@@ -75,6 +88,43 @@ const InkasoManagement: React.FC<InkasoManagementProps> = ({ dateFrom, dateTo })
       .reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
     return { inkaso, bayar, tagihan: inkaso - bayar };
   }, [dateFrom, dateTo, collections, payments]);
+
+  // Filter payments to only show current month (hide paid inkaso from previous months)
+  const visiblePayments = useMemo(() => {
+    if (showHistory) {
+      // In history mode, show payments from selected month/year
+      return payments.filter(p => {
+        const paymentDate = new Date(p.date);
+        return paymentDate.getMonth() === historyMonth && paymentDate.getFullYear() === historyYear;
+      });
+    }
+    // In normal mode, only show payments from current month
+    return payments.filter(p => {
+      const paymentDate = new Date(p.date);
+      return paymentDate.getMonth() === currentMonth && paymentDate.getFullYear() === currentYear;
+    });
+  }, [payments, showHistory, historyMonth, historyYear, currentMonth, currentYear]);
+
+  // Filter collections for history view
+  const visibleCollections = useMemo(() => {
+    if (showHistory) {
+      // In history mode, show collections from selected month/year
+      return collections.filter(c => {
+        const collectionDate = new Date(c.date);
+        return collectionDate.getMonth() === historyMonth && collectionDate.getFullYear() === historyYear;
+      });
+    }
+    // In normal mode, show all collections (unpaid inkaso)
+    return collections;
+  }, [collections, showHistory, historyMonth, historyYear]);
+
+  // Calculate totals for history view
+  const historyTotals = useMemo(() => {
+    if (!showHistory) return totals;
+    const inkaso = visibleCollections.reduce((sum, c) => sum + Number(c.amount || 0), 0);
+    const bayar = visiblePayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+    return { inkaso, bayar, tagihan: inkaso - bayar };
+  }, [showHistory, visibleCollections, visiblePayments, totals]);
 
   const fetchCollections = async () => {
     try {
@@ -132,7 +182,7 @@ const InkasoManagement: React.FC<InkasoManagementProps> = ({ dateFrom, dateTo })
           description: 'Data inkaso berhasil ditambahkan',
         });
       }
-      
+
       setEditingCollection(null);
       fetchCollections();
     } catch (error) {
@@ -147,7 +197,7 @@ const InkasoManagement: React.FC<InkasoManagementProps> = ({ dateFrom, dateTo })
 
   const handleDeleteCollection = async (id: string) => {
     if (!confirm('Apakah Anda yakin ingin menghapus data inkaso ini?')) return;
-    
+
     try {
       await fetchJSON(`${API_BASE}/collections/${id}`, { method: 'DELETE' });
       toast({
@@ -191,7 +241,7 @@ const InkasoManagement: React.FC<InkasoManagementProps> = ({ dateFrom, dateTo })
           description: 'Data pembayaran berhasil ditambahkan',
         });
       }
-      
+
       setEditingPayment(null);
       fetchPayments();
     } catch (error) {
@@ -206,7 +256,7 @@ const InkasoManagement: React.FC<InkasoManagementProps> = ({ dateFrom, dateTo })
 
   const handleDeletePayment = async (id: string) => {
     if (!confirm('Apakah Anda yakin ingin menghapus data pembayaran ini?')) return;
-    
+
     try {
       await fetchJSON(`${API_BASE}/payments/${id}`, { method: 'DELETE' });
       toast({
@@ -226,7 +276,7 @@ const InkasoManagement: React.FC<InkasoManagementProps> = ({ dateFrom, dateTo })
 
   const handleTransferToPayment = async (collection: CollectionRecord) => {
     if (!confirm(`Apakah Anda yakin ingin memindahkan inkaso Rp ${Number(collection.amount).toLocaleString('id-ID')} tanggal ${new Date(collection.date).toLocaleDateString('id-ID')} ke pembayaran?`)) return;
-    
+
     try {
       // Buat data pembayaran baru dengan data yang sama dari inkaso
       await fetchJSON(`${API_BASE}/payments`, {
@@ -237,15 +287,15 @@ const InkasoManagement: React.FC<InkasoManagementProps> = ({ dateFrom, dateTo })
           date: collection.date,
         }),
       });
-      
+
       // Hapus data dari inkaso
       await fetchJSON(`${API_BASE}/collections/${collection.id}`, { method: 'DELETE' });
-      
+
       toast({
         title: 'Sukses',
         description: 'Data inkaso berhasil dipindahkan ke pembayaran',
       });
-      
+
       // Refresh data
       fetchCollections();
       fetchPayments();
@@ -261,7 +311,7 @@ const InkasoManagement: React.FC<InkasoManagementProps> = ({ dateFrom, dateTo })
 
   const handleReverseToCollection = async (payment: PaymentRecord) => {
     if (!confirm(`Apakah Anda yakin ingin memindahkan pembayaran Rp ${Number(payment.amount).toLocaleString('id-ID')} tanggal ${new Date(payment.date).toLocaleDateString('id-ID')} kembali ke inkaso?`)) return;
-    
+
     try {
       // Buat data inkaso baru dengan data yang sama dari pembayaran
       await fetchJSON(`${API_BASE}/collections`, {
@@ -272,15 +322,15 @@ const InkasoManagement: React.FC<InkasoManagementProps> = ({ dateFrom, dateTo })
           date: payment.date,
         }),
       });
-      
+
       // Hapus data dari pembayaran
       await fetchJSON(`${API_BASE}/payments/${payment.id}`, { method: 'DELETE' });
-      
+
       toast({
         title: 'Sukses',
         description: 'Data pembayaran berhasil dipindahkan kembali ke inkaso',
       });
-      
+
       // Refresh data
       fetchCollections();
       fetchPayments();
@@ -299,31 +349,79 @@ const InkasoManagement: React.FC<InkasoManagementProps> = ({ dateFrom, dateTo })
       {/* Ringkasan Inkaso/Bayar */}
       <Card>
         <CardHeader>
-          <CardTitle>Ringkasan Inkaso</CardTitle>
-          <CardDescription>Periode {dateFrom} - {dateTo}</CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Ringkasan Inkaso</CardTitle>
+              <CardDescription>
+                {showHistory
+                  ? `History ${monthNames[historyMonth]} ${historyYear}`
+                  : `Periode ${dateFrom} - ${dateTo}`
+                }
+              </CardDescription>
+            </div>
+            <Button
+              variant={showHistory ? "default" : "outline"}
+              size="sm"
+              onClick={() => setShowHistory(!showHistory)}
+              className="flex items-center gap-2"
+            >
+              <History className="h-4 w-4" />
+              {showHistory ? 'Lihat Saat Ini' : 'Lihat History'}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
+          {/* History Month/Year Selector */}
+          {showHistory && (
+            <div className="flex gap-4 mb-6 p-4 bg-muted/30 rounded-lg">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">Pilih Periode:</span>
+              </div>
+              <Select value={historyMonth.toString()} onValueChange={(v) => setHistoryMonth(parseInt(v))}>
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue placeholder="Bulan" />
+                </SelectTrigger>
+                <SelectContent>
+                  {monthNames.map((month, index) => (
+                    <SelectItem key={index} value={index.toString()}>{month}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={historyYear.toString()} onValueChange={(v) => setHistoryYear(parseInt(v))}>
+                <SelectTrigger className="w-[100px]">
+                  <SelectValue placeholder="Tahun" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: 5 }, (_, i) => currentYear - 2 + i).map((year) => (
+                    <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="stats-card p-4">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm text-muted-foreground">Total Inkaso</span>
                 <DollarSign className="h-4 w-4 text-secondary" />
               </div>
-              <div className="text-xl font-bold text-secondary">Rp {totals.inkaso.toLocaleString('id-ID')}</div>
+              <div className="text-xl font-bold text-secondary">Rp {(showHistory ? historyTotals : totals).inkaso.toLocaleString('id-ID')}</div>
             </div>
             <div className="stats-card p-4">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm text-muted-foreground">Total Bayar</span>
                 <DollarSign className="h-4 w-4 text-primary" />
               </div>
-              <div className="text-xl font-bold text-primary">Rp {totals.bayar.toLocaleString('id-ID')}</div>
+              <div className="text-xl font-bold text-primary">Rp {(showHistory ? historyTotals : totals).bayar.toLocaleString('id-ID')}</div>
             </div>
             <div className="stats-card p-4">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm text-muted-foreground">Total Tagihan</span>
                 <Receipt className="h-4 w-4 text-destructive" />
               </div>
-              <div className="text-xl font-bold text-destructive">Rp {totals.tagihan.toLocaleString('id-ID')}</div>
+              <div className="text-xl font-bold text-destructive">Rp {(showHistory ? historyTotals : totals).tagihan.toLocaleString('id-ID')}</div>
             </div>
           </div>
         </CardContent>
@@ -388,40 +486,54 @@ const InkasoManagement: React.FC<InkasoManagementProps> = ({ dateFrom, dateTo })
           <CardHeader>
             <CardTitle className="flex items-center">
               <Receipt className="h-5 w-5 mr-2" />
-              Daftar Inkaso
+              Daftar Inkaso {showHistory ? `(${monthNames[historyMonth]} ${historyYear})` : '(Belum Bayar)'}
             </CardTitle>
+            <CardDescription>
+              {showHistory
+                ? `Inkaso pada ${monthNames[historyMonth]} ${historyYear}`
+                : 'Semua inkaso yang belum dibayar'
+              }
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Tanggal Jatuh Tempo</TableHead>
-                  <TableHead>Inkaso</TableHead>
-                  <TableHead>Aksi</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {collections.map((c) => (
-                  <TableRow key={c.id}>
-                    <TableCell>{new Date(c.date).toLocaleDateString('id-ID')}</TableCell>
-                    <TableCell>Rp {Number(c.amount).toLocaleString('id-ID')}</TableCell>
-                    <TableCell>
-                      <div className="flex space-x-2">
-                        <Button size="sm" variant="outline" onClick={() => handleTransferToPayment(c)} title="Tandai sudah bayar">
-                          <Check className="h-4 w-4" />
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => setEditingCollection(c)}>
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button size="sm" variant="destructive" onClick={() => handleDeleteCollection(c.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
+            {visibleCollections.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                {showHistory ? 'Tidak ada inkaso pada periode ini' : 'Tidak ada inkaso yang belum dibayar'}
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Tanggal Jatuh Tempo</TableHead>
+                    <TableHead>Inkaso</TableHead>
+                    {!showHistory && <TableHead>Aksi</TableHead>}
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {visibleCollections.map((c) => (
+                    <TableRow key={c.id}>
+                      <TableCell>{new Date(c.date).toLocaleDateString('id-ID')}</TableCell>
+                      <TableCell>Rp {Number(c.amount).toLocaleString('id-ID')}</TableCell>
+                      {!showHistory && (
+                        <TableCell>
+                          <div className="flex space-x-2">
+                            <Button size="sm" variant="outline" onClick={() => handleTransferToPayment(c)} title="Tandai sudah bayar">
+                              <Check className="h-4 w-4" />
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => setEditingCollection(c)}>
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button size="sm" variant="destructive" onClick={() => handleDeleteCollection(c.id)}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
 
@@ -429,40 +541,54 @@ const InkasoManagement: React.FC<InkasoManagementProps> = ({ dateFrom, dateTo })
           <CardHeader>
             <CardTitle className="flex items-center">
               <Receipt className="h-5 w-5 mr-2" />
-              Daftar Pembayaran
+              Daftar Pembayaran {showHistory ? `(${monthNames[historyMonth]} ${historyYear})` : '(Bulan Ini)'}
             </CardTitle>
+            <CardDescription>
+              {showHistory
+                ? `Pembayaran pada ${monthNames[historyMonth]} ${historyYear}`
+                : `Pembayaran ${monthNames[currentMonth]} ${currentYear}`
+              }
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Tanggal Bayar</TableHead>
-                  <TableHead>Pembayaran</TableHead>
-                  <TableHead>Aksi</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {payments.map((p) => (
-                  <TableRow key={p.id}>
-                    <TableCell>{new Date(p.date).toLocaleDateString('id-ID')}</TableCell>
-                    <TableCell>Rp {Number(p.amount).toLocaleString('id-ID')}</TableCell>
-                    <TableCell>
-                      <div className="flex space-x-2">
-                        <Button size="sm" variant="outline" onClick={() => handleReverseToCollection(p)} title="Kembalikan ke inkaso">
-                          <RotateCcw className="h-4 w-4" />
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => setEditingPayment(p)}>
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button size="sm" variant="destructive" onClick={() => handleDeletePayment(p.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
+            {visiblePayments.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                {showHistory ? 'Tidak ada pembayaran pada periode ini' : 'Belum ada pembayaran bulan ini'}
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Tanggal Bayar</TableHead>
+                    <TableHead>Pembayaran</TableHead>
+                    {!showHistory && <TableHead>Aksi</TableHead>}
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {visiblePayments.map((p) => (
+                    <TableRow key={p.id}>
+                      <TableCell>{new Date(p.date).toLocaleDateString('id-ID')}</TableCell>
+                      <TableCell>Rp {Number(p.amount).toLocaleString('id-ID')}</TableCell>
+                      {!showHistory && (
+                        <TableCell>
+                          <div className="flex space-x-2">
+                            <Button size="sm" variant="outline" onClick={() => handleReverseToCollection(p)} title="Kembalikan ke inkaso">
+                              <RotateCcw className="h-4 w-4" />
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => setEditingPayment(p)}>
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button size="sm" variant="destructive" onClick={() => handleDeletePayment(p.id)}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       </div>

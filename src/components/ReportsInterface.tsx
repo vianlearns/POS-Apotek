@@ -70,6 +70,10 @@ const ReportsInterface = () => {
   const [collections, setCollections] = useState<CollectionRecord[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
 
+  // Monthly revenue chart state
+  const [chartYear, setChartYear] = useState(new Date().getFullYear());
+  const [monthlyRevenueData, setMonthlyRevenueData] = useState<Array<{ month: string; monthIndex: number; revenue: number }>>([]);
+
   // Dialog states
   const [showEmployeeDialog, setShowEmployeeDialog] = useState(false);
   const [showPayrollDialog, setShowPayrollDialog] = useState(false);
@@ -100,6 +104,11 @@ const ReportsInterface = () => {
     fetchCollections();
     fetchPayments();
   }, [dateFrom, dateTo]);
+
+  // Fetch monthly revenue data when chart year changes
+  useEffect(() => {
+    fetchMonthlyRevenueData(chartYear);
+  }, [chartYear]);
 
   const totals = useMemo<Totals>(() => {
     const from = new Date(dateFrom);
@@ -281,6 +290,58 @@ const ReportsInterface = () => {
       const data = await fetchJSON(`${API_BASE}/payments`);
       setPayments((Array.isArray(data) ? data : []).map(mapPaymentRow));
     } catch (error) { console.error('Error fetching payments:', error); }
+  };
+
+  const fetchMonthlyRevenueData = async (year: number) => {
+    try {
+      // Fetch all transactions for the selected year
+      const fromDate = `${year}-01-01`;
+      const toDate = `${year}-12-31`;
+      const transactionsData = await fetchJSON(`${API_BASE}/transactions?from=${fromDate}&to=${toDate}&status=completed`);
+
+      // Process transactions to get monthly totals
+      const monthlyTotals: Record<number, number> = {};
+
+      if (Array.isArray(transactionsData)) {
+        transactionsData.forEach((transaction: any) => {
+          try {
+            const dateStr = transaction.date;
+            if (!dateStr) return;
+
+            // Parse the date and get the month
+            const date = new Date(dateStr);
+            const month = date.getMonth();
+
+            // Calculate total from transaction items or use transaction total
+            let transactionTotal = 0;
+            if (Array.isArray(transaction.transaction_items)) {
+              transactionTotal = transaction.transaction_items.reduce(
+                (sum: number, item: any) => sum + Number(item.total || 0),
+                0
+              );
+            } else {
+              transactionTotal = Number(transaction.total || 0);
+            }
+
+            if (!monthlyTotals[month]) monthlyTotals[month] = 0;
+            monthlyTotals[month] += transactionTotal;
+          } catch (e) {
+            console.error('Error processing transaction for monthly chart:', e);
+          }
+        });
+      }
+
+      // Convert to array format for the chart
+      const monthlyData = monthNames.map((month, index) => ({
+        month,
+        monthIndex: index,
+        revenue: monthlyTotals[index] || 0
+      }));
+
+      setMonthlyRevenueData(monthlyData);
+    } catch (error) {
+      console.error('Error fetching monthly revenue data:', error);
+    }
   };
 
   // CRUD handlers
@@ -508,7 +569,14 @@ const ReportsInterface = () => {
           <TabsTrigger value="profit" className="data-[state=active]:bg-accent data-[state=active]:text-accent-foreground">Laba Rugi</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="sales"><SalesTab salesData={salesData} /></TabsContent>
+        <TabsContent value="sales">
+          <SalesTab
+            salesData={salesData}
+            monthlyRevenueData={monthlyRevenueData}
+            selectedChartYear={chartYear}
+            onChartYearChange={setChartYear}
+          />
+        </TabsContent>
         <TabsContent value="stock"><StockTab stockMovement={stockMovement} /></TabsContent>
         <TabsContent value="employees">
           <EmployeesTab
